@@ -9,7 +9,7 @@ import {
   Send,
   PlusCircle,
   Receipt,
-  CheckCircle2,
+  CheckCircle2,new Date()
   Trash2,
   AlertCircle,
   Download,
@@ -47,8 +47,7 @@ export default function Home() {
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
   );
-
-  // ...
+  // 以降の処理...
 }
 
 type ActivityLog = {
