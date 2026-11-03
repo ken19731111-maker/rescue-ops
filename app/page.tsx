@@ -89,10 +89,11 @@ function urlBase64ToUint8Array(base64String: string) {
 
 export default function Home() {
   // ✅ 必ずコンポーネントの「中」で初期化（ビルドエラー防止）
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key"
-  );
+export default function Home() {
+  // ✅ ビルド時（サーバー側・静的エクスポート時）でも絶対に落ちない安全な初期化
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key";
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
