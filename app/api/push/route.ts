@@ -4,9 +4,9 @@ import webPush from "web-push";
 import { createClient } from "@supabase/supabase-js";
 
 webPush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
+  process.env.VAPID_SUBJECT || "ken.c.1173.surf@gmail.com",
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "BPz5mEADmHOl0FEQX-wisNmAGhZGhkyjdQPFnUU9MlcDRzfmyBehtUsaNDszmwQnZBe6N2E6ta2vl6uq99nMkcQ",
+  process.env.VAPID_PRIVATE_KEY || "IpGvZuzSKPFZNpxMkfQO_xfXzy_nD9P48T0JnHK_9mM"
 );
 
 const supabase = createClient(
