@@ -1,4 +1,6 @@
-"use client";
+'use client';
+
+export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -41,13 +43,7 @@ import {
   FileText,
 } from "lucide-react";
 
-// 'use client' はファイルの最上部（この行の前、またはインポートの前）に記述します
-'use client';
-
-// 動的レンダリングの強制
-export const dynamic = 'force-dynamic';
-
-// コンポーネント外で安全に初期化（ビルド時のクラッシュを防ぐ）
+// 👑 コンポーネント外で一度だけ安全に初期化（ビルドエラーを完全に回避）
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key";
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -99,8 +95,8 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function Home() {
-  // ✅ 必ずコンポーネントの「中」で初期化（ビルドエラー防止）
-  // ✅ ビルド時のプリレンダーで絶対に落ちないように、環境変数がなければダミー、あれば本物を使う
+  // ⚠️ コンポーネント内の `const supabase = createClient(...)` は完全に削除しました。
+  // 上部で初期化した `supabase` 変数をそのまま利用します。
 
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
