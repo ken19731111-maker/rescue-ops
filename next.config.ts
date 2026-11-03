@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   experimental: {
     agentFeedback: true,
   },
-  cacheComponents: true,
+  // cacheComponents: true, を削除
   partialPrefetching: true,
   turbopack: {
     rules: {
