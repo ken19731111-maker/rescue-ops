@@ -3,7 +3,6 @@ import webPush from "web-push";
 
 export async function POST(request: Request) {
   try {
-    // 💡 リクエストが来たタイミング（実行時）にのみ初期化する
     const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "dummy_public_key";
     const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "dummy_private_key";
