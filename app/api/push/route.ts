@@ -3,11 +3,16 @@ import webPush from "web-push";
 
 export async function POST(request: Request) {
   try {
-    const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
-    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "dummy_public_key";
-    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "dummy_private_key";
+    const vapidSubject = process.env.VAPID_SUBJECT;
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 
-    webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    // VAPIDキーが正しく設定されている場合のみ初期化する（未設定時のビルドクラッシュを防ぐ）
+    if (vapidSubject && vapidPublicKey && vapidPrivateKey && vapidPublicKey !== "dummy_public_key") {
+      webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    } else {
+      console.warn("VAPID keys are not fully configured. Push notifications may fail.");
+    }
 
     const body = await request.json();
     const { subscription, title, message } = body;
