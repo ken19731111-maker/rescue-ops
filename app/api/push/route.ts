@@ -7,7 +7,6 @@ export async function POST(request: Request) {
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 
-    // ビルド時にエラーにならないよう、リクエスト時かつ有効なキーの時だけ初期化する
     if (vapidSubject && vapidPublicKey && vapidPrivateKey && vapidPublicKey !== "dummy_public_key") {
       webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
     }
