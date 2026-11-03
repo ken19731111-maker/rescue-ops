@@ -7,11 +7,9 @@ export async function POST(request: Request) {
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 
-    // VAPIDキーが正しく設定されている場合のみ初期化する（未設定時のビルドクラッシュを防ぐ）
+    // ビルド時にエラーにならないよう、リクエスト時かつ有効なキーの時だけ初期化する
     if (vapidSubject && vapidPublicKey && vapidPrivateKey && vapidPublicKey !== "dummy_public_key") {
       webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
-    } else {
-      console.warn("VAPID keys are not fully configured. Push notifications may fail.");
     }
 
     const body = await request.json();
