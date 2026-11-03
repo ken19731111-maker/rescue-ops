@@ -1,6 +1,5 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -41,6 +40,17 @@ import {
   MapPin,
   FileText,
 } from "lucide-react";
+
+// 'use client' はファイルの最上部（この行の前、またはインポートの前）に記述します
+'use client';
+
+// 動的レンダリングの強制
+export const dynamic = 'force-dynamic';
+
+// コンポーネント外で安全に初期化（ビルド時のクラッシュを防ぐ）
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 type ActivityLog = {
   id: string;
@@ -90,9 +100,6 @@ function urlBase64ToUint8Array(base64String: string) {
 
 export default function Home() {
   // ✅ 必ずコンポーネントの「中」で初期化（ビルドエラー防止）
-export default function Home() {
-  // ✅ ビルド時（サーバー側・静的エクスポート時）でも絶対に落ちない安全な初期化
-export default function Home() {
   // ✅ ビルド時のプリレンダーで絶対に落ちないように、環境変数がなければダミー、あれば本物を使う
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
