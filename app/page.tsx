@@ -146,9 +146,17 @@ export default function Home() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   // 月末集計用の選択月
-  const [targetMonth, setTargetMonth] = useState<string>(
-    new Date().toISOString().slice(0, 7)
-  );
+ // 変更前
+// const [targetMonth, setTargetMonth] = useState<string>(
+//   new Date().toISOString().slice(0, 7)
+// );
+
+// 変更後
+const [targetMonth, setTargetMonth] = useState<string>("");
+
+useEffect(() => {
+  setTargetMonth(new Date().toISOString().slice(0, 7));
+}, []);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("rescueops_theme");
