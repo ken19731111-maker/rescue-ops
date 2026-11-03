@@ -41,10 +41,15 @@ import {
   FileText,
 } from "lucide-react";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// ✅ コンポーネント内部で初期化するか、ヘルパー関数を使用する
+export default function Home() {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+  );
+
+  // ...
+}
 
 type ActivityLog = {
   id: string;
