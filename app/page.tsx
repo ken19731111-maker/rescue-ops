@@ -93,9 +93,6 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function Home() {
-  // ⚠️ コンポーネント内の `const supabase = createClient(...)` は完全に削除しました。
-  // 上部で初期化した `supabase` 変数をそのまま利用します。
-
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [animals, setAnimals] = useState<Animal[]>([]);
