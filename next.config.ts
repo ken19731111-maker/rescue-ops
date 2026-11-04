@@ -1,11 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   experimental: {
     agentFeedback: true,
   },
-  // cacheComponents: true, を削除
+  // cacheComponents: true, ← この行が残っていないか確認し、削除する
   partialPrefetching: true,
   turbopack: {
     rules: {
@@ -18,4 +17,3 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
-
