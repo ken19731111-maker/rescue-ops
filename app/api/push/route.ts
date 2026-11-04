@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import webPush from "web-push";
 
+export const runtime = 'edge';
+
 export async function POST(request: Request) {
   try {
     const vapidSubject = process.env.VAPID_SUBJECT;
