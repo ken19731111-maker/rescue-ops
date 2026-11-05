@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npx @cloudflare/next-on-pages",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
-  }, 
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^1.66.0",
