@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm install --legacy-peer-deps && npx @cloudflare/next-on-pages",
     "start": "next start",
     "lint": "eslint"
   },
+
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^1.66.0",
