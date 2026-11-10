@@ -41,7 +41,6 @@ import {
   FileText,
 } from "lucide-react";
 
-// 👑 コンポーネント外で一度だけ安全に初期化（ビルドエラーを完全に回避）
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key";
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -99,16 +98,13 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // 🔑 管理者権限（admin）判定用ステート
+  // 🔑 管理者権限判定 & 新規登録切り替えステート
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
 
-  // 🌙 ダークモード
   const [darkMode, setDarkMode] = useState(false);
-
-  // ⚙️ 設定・管理パネル
   const [showSettings, setShowSettings] = useState(false);
 
-  // 新規ボランティア追加用
   const [newVolName, setNewVolName] = useState("");
   const [newVolNickname, setNewVolNickname] = useState("");
   const [newVolContact, setNewVolContact] = useState("");
@@ -116,27 +112,20 @@ export default function Home() {
   const [newVolAddress, setNewVolAddress] = useState("");
   const [newVolNotes, setNewVolNotes] = useState("");
 
-  // 新規動物追加用
   const [newAnimalName, setNewAnimalName] = useState("");
   const [newAnimalSpecies, setNewAnimalSpecies] = useState("cat");
 
-  // 📲 Webプッシュ通知
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
 
-  // 認証
   const [user, setUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // メイン画面のタブ切り替え
   const [activeTab, setActiveTab] = useState<"logs" | "summary">("logs");
-  // 🔐 認証モーダルの切り替えステート（false: ログイン, true: 新規登録）
-  const [isSignUp, setIsSignUp] = useState(false);
 
-  // フォーム状態
   const [type, setType] = useState<"expense" | "donation">("expense");
   const [volunteerName, setVolunteerName] = useState("匿名");
   const [category, setCategory] = useState("医療費");
@@ -146,18 +135,14 @@ export default function Home() {
   const [details, setDetails] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
 
-  // フィルター
   const [filter, setFilter] = useState<"all" | "expense" | "donation" | "pending">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-
-  // 月末集計用の選択月
   const [targetMonth, setTargetMonth] = useState<string>("");
 
   useEffect(() => {
     setTargetMonth(new Date().toISOString().slice(0, 7));
   }, []);
 
-  // 🔑 ユーザーの role（管理者権限）を profiles テーブルから確認する関数
   const checkAdminRole = async (userId: string | undefined) => {
     if (!userId) {
       setIsAdmin(false);
@@ -171,7 +156,6 @@ export default function Home() {
         .single();
       setIsAdmin(profile?.role === "admin");
     } catch (err) {
-      console.error("Role check error:", err);
       setIsAdmin(false);
     }
   };
@@ -193,7 +177,6 @@ export default function Home() {
       });
     }
 
-    // 認証セッションの監視と権限判定
     supabase.auth.getSession().then(({ data: { session } }) => {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
@@ -382,19 +365,15 @@ export default function Home() {
     }).catch((err) => console.error("プッシュ通知送信エラー:", err));
   };
 
+  // 🔑 ログイン・新規登録の共通ハンドラー
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginLoading(true);
 
     if (isSignUp) {
-      // 📝 新規登録（サインアップ）
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-
+      const { error } = await supabase.auth.signUp({ email, password });
       if (error) {
-        alert("新規登録に失敗しました: " + error.message);
+        alert("新規登録失敗: " + error.message);
       } else {
         alert("アカウントを作成しました！");
         setEmail("");
@@ -402,12 +381,7 @@ export default function Home() {
         setShowLoginModal(false);
       }
     } else {
-      // 🔑 ログイン
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         alert("ログイン失敗: " + error.message);
       } else {
@@ -514,7 +488,6 @@ export default function Home() {
   const handleDelete = async (id: string, title: string) => {
     if (!isAdmin) {
       alert("削除には管理者権限が必要です。");
-      setShowLoginModal(true);
       return;
     }
     if (!confirm(`「${title}」を削除しますか？`)) return;
@@ -561,7 +534,6 @@ export default function Home() {
     window.print();
   };
 
-  // 月末集計の計算
   const monthlyLogs = logs.filter((log) => {
     if (!log.created_at) return false;
     const logMonth = log.created_at.slice(0, 7);
@@ -674,7 +646,6 @@ export default function Home() {
               </button>
             )}
 
-            {/* 管理者（isAdmin）のみ設定・名簿パネルボタンを表示 */}
             {isAdmin && (
               <button
                 onClick={() => setShowSettings(!showSettings)}
@@ -743,17 +714,20 @@ export default function Home() {
               </div>
             ) : (
               <button
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => {
+                  setIsSignUp(false);
+                  setShowLoginModal(true);
+                }}
                 className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
               >
                 <Lock className="w-3.5 h-3.5" />
-                ログイン
+                ログイン / 登録
               </button>
             )}
           </div>
         </header>
 
-        {/* ⚙️ 管理者専用パネル（isAdmin の場合のみ展開可能） */}
+        {/* ⚙️ 管理者専用パネル */}
         {showSettings && isAdmin && (
           <section
             className={`rounded-2xl p-5 border shadow-sm space-y-6 transition-all print:hidden ${
@@ -908,6 +882,7 @@ export default function Home() {
                   </button>
                 </form>
               </div>
+            </div>
           </section>
         )}
 
@@ -1175,7 +1150,6 @@ export default function Home() {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {/* 管理者（isAdmin）のみが承認ステータスを変更・表示切り替え可能 */}
                             {isAdmin ? (
                               <button
                                 onClick={() => handleStatusChange(log.id, log.status)}
@@ -1199,7 +1173,6 @@ export default function Home() {
                               </span>
                             )}
 
-                            {/* 管理者（isAdmin）のみがログ削除可能 */}
                             {isAdmin && (
                               <button
                                 onClick={() => handleDelete(log.id, log.title)}
@@ -1318,8 +1291,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ログインモーダル */}
-{/* 🔐 ログイン / 新規登録 モーダル */}
+        {/* 🔐 ログイン / 新規登録 モーダル */}
         {showLoginModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className={`p-6 rounded-2xl max-w-sm w-full space-y-4 border ${darkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}>
