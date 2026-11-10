@@ -91,13 +91,16 @@ function urlBase64ToUint8Array(base64String: string) {
   }
   return outputArray;
 }
-  
+
 export default function Home() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [animals, setAnimals] = useState<Animal[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  // 🔑 管理者権限（admin）判定用ステート
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // 🌙 ダークモード
   const [darkMode, setDarkMode] = useState(false);
@@ -152,6 +155,25 @@ export default function Home() {
     setTargetMonth(new Date().toISOString().slice(0, 7));
   }, []);
 
+  // 🔑 ユーザーの role（管理者権限）を profiles テーブルから確認する関数
+  const checkAdminRole = async (userId: string | undefined) => {
+    if (!userId) {
+      setIsAdmin(false);
+      return;
+    }
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .single();
+      setIsAdmin(profile?.role === "admin");
+    } catch (err) {
+      console.error("Role check error:", err);
+      setIsAdmin(false);
+    }
+  };
+
   useEffect(() => {
     const savedTheme = localStorage.getItem("rescueops_theme");
     if (savedTheme === "dark") setDarkMode(true);
@@ -169,14 +191,19 @@ export default function Home() {
       });
     }
 
+    // 認証セッションの監視と権限判定
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      checkAdminRole(currentUser?.id);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      checkAdminRole(currentUser?.id);
     });
 
     fetchInitialData();
@@ -217,6 +244,10 @@ export default function Home() {
 
   const handleAddVolunteer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      alert("ボランティアの追加は管理者権限が必要です。");
+      return;
+    }
     if (!newVolName.trim()) return;
 
     const { error } = await supabase.from("volunteers").insert([
@@ -245,6 +276,10 @@ export default function Home() {
 
   const handleAddAnimal = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      alert("保護動物の追加は管理者権限が必要です。");
+      return;
+    }
     if (!newAnimalName.trim()) return;
 
     const { error } = await supabase.from("animals").insert([
@@ -259,19 +294,27 @@ export default function Home() {
   };
 
   const handleDeleteVolunteer = async (id: string, name: string) => {
+    if (!isAdmin) {
+      alert("削除には管理者権限が必要です。");
+      return;
+    }
     if (!confirm(`本当に「${name}」さんを名簿から削除しますか？`)) return;
     await supabase.from("volunteers").delete().eq("id", id);
     fetchVolunteers();
   };
 
   const handleDeleteAnimal = async (id: string) => {
+    if (!isAdmin) {
+      alert("削除には管理者権限が必要です。");
+      return;
+    }
     if (!confirm("この保護動物を削除してもよろしいですか？")) return;
     await supabase.from("animals").delete().eq("id", id);
     fetchAnimals();
   };
 
   const subscribeToPush = async () => {
-    if (!user) {
+    if (!user || !isAdmin) {
       alert("プッシュ通知の購読には管理者ログインが必要です。");
       setShowLoginModal(true);
       return;
@@ -353,6 +396,7 @@ export default function Home() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    setIsAdmin(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -432,8 +476,8 @@ export default function Home() {
   };
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
-    if (!user) {
-      alert("ステータス変更には管理者ログインが必要です。");
+    if (!isAdmin) {
+      alert("ステータス変更には管理者権限が必要です。");
       setShowLoginModal(true);
       return;
     }
@@ -443,8 +487,8 @@ export default function Home() {
   };
 
   const handleDelete = async (id: string, title: string) => {
-    if (!user) {
-      alert("削除には管理者ログインが必要です。");
+    if (!isAdmin) {
+      alert("削除には管理者権限が必要です。");
       setShowLoginModal(true);
       return;
     }
@@ -590,7 +634,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap print:hidden">
-            {user && (
+            {isAdmin && (
               <button
                 onClick={subscribeToPush}
                 disabled={pushSubscribed || pushLoading}
@@ -605,19 +649,22 @@ export default function Home() {
               </button>
             )}
 
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              title="管理者・名簿管理パネル"
-              className={`p-2.5 rounded-xl border transition-all ${
-                showSettings
-                  ? "bg-indigo-600 border-indigo-500 text-white"
-                  : darkMode
-                  ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-                  : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+            {/* 管理者（isAdmin）のみ設定・名簿パネルボタンを表示 */}
+            {isAdmin && (
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                title="管理者・名簿管理パネル"
+                className={`p-2.5 rounded-xl border transition-all ${
+                  showSettings
+                    ? "bg-indigo-600 border-indigo-500 text-white"
+                    : darkMode
+                    ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                    : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
 
             <button
               onClick={toggleDarkMode}
@@ -652,9 +699,13 @@ export default function Home() {
 
             {user ? (
               <div className="flex items-center gap-2">
-                <span className="bg-emerald-500/10 text-emerald-500 text-xs font-semibold px-3 py-2 rounded-xl border border-emerald-500/20 flex items-center gap-1">
+                <span className={`text-xs font-semibold px-3 py-2 rounded-xl border flex items-center gap-1 ${
+                  isAdmin 
+                    ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                    : "bg-slate-500/10 text-slate-400 border-slate-500/20"
+                }`}>
                   <Unlock className="w-3 h-3" />
-                  管理者
+                  {isAdmin ? "管理者" : "一般ボランティア"}
                 </span>
                 <button
                   onClick={handleLogout}
@@ -671,14 +722,14 @@ export default function Home() {
                 className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
               >
                 <Lock className="w-3.5 h-3.5" />
-                管理者ログイン
+                ログイン
               </button>
             )}
           </div>
         </header>
 
-        {/* ⚙️ 管理者専用パネル */}
-        {showSettings && (
+        {/* ⚙️ 管理者専用パネル（isAdmin の場合のみ展開可能） */}
+        {showSettings && isAdmin && (
           <section
             className={`rounded-2xl p-5 border shadow-sm space-y-6 transition-all print:hidden ${
               darkMode ? "bg-slate-900/90 border-indigo-500/30" : "bg-indigo-50/50 border-indigo-200"
@@ -690,138 +741,123 @@ export default function Home() {
                   <ShieldCheck className="w-4 h-4 text-emerald-500" />
                   管理者専用：詳細ボランティア名簿 ({volunteers.length}名)
                 </h3>
-                {!user && (
-                  <span className="text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1">
-                    <Lock className="w-3 h-3" /> 名簿の管理には管理者ログインが必要です
-                  </span>
-                )}
               </div>
 
-              {user ? (
-                <div className="space-y-4">
-                  <div className="overflow-x-auto rounded-xl border border-slate-700">
-                    <table className="w-full text-left text-xs">
-                      <thead className={darkMode ? "bg-slate-800 text-slate-300" : "bg-indigo-100 text-indigo-900"}>
-                        <tr>
-                          <th className="p-2.5">氏名 (本名)</th>
-                          <th className="p-2.5">愛称</th>
-                          <th className="p-2.5">連絡先</th>
-                          <th className="p-2.5">メール</th>
-                          <th className="p-2.5">住所</th>
-                          <th className="p-2.5">備考</th>
-                          <th className="p-2.5 text-center">操作</th>
+              <div className="space-y-4">
+                <div className="overflow-x-auto rounded-xl border border-slate-700">
+                  <table className="w-full text-left text-xs">
+                    <thead className={darkMode ? "bg-slate-800 text-slate-300" : "bg-indigo-100 text-indigo-900"}>
+                      <tr>
+                        <th className="p-2.5">氏名 (本名)</th>
+                        <th className="p-2.5">愛称</th>
+                        <th className="p-2.5">連絡先</th>
+                        <th className="p-2.5">メール</th>
+                        <th className="p-2.5">住所</th>
+                        <th className="p-2.5">備考</th>
+                        <th className="p-2.5 text-center">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {volunteers.map((vol) => (
+                        <tr key={vol.id} className={darkMode ? "hover:bg-slate-800/50" : "hover:bg-white"}>
+                          <td className="p-2.5 font-bold">{vol.name}</td>
+                          <td className="p-2.5 text-indigo-400 font-semibold">{vol.nickname || "-"}</td>
+                          <td className="p-2.5 text-slate-300">{vol.contact || "-"}</td>
+                          <td className="p-2.5 text-slate-300">{vol.email || "-"}</td>
+                          <td className="p-2.5 text-slate-300">{vol.address || "-"}</td>
+                          <td className="p-2.5 text-slate-400">{vol.notes || "-"}</td>
+                          <td className="p-2.5 text-center">
+                            <button
+                              onClick={() => handleDeleteVolunteer(vol.id, vol.name)}
+                              className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-[10px] font-bold"
+                            >
+                              削除
+                            </button>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800">
-                        {volunteers.map((vol) => (
-                          <tr key={vol.id} className={darkMode ? "hover:bg-slate-800/50" : "hover:bg-white"}>
-                            <td className="p-2.5 font-bold">{vol.name}</td>
-                            <td className="p-2.5 text-indigo-400 font-semibold">{vol.nickname || "-"}</td>
-                            <td className="p-2.5 text-slate-300">{vol.contact || "-"}</td>
-                            <td className="p-2.5 text-slate-300">{vol.email || "-"}</td>
-                            <td className="p-2.5 text-slate-300">{vol.address || "-"}</td>
-                            <td className="p-2.5 text-slate-400">{vol.notes || "-"}</td>
-                            <td className="p-2.5 text-center">
-                              <button
-                                onClick={() => handleDeleteVolunteer(vol.id, vol.name)}
-                                className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-[10px] font-bold"
-                              >
-                                削除
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <form onSubmit={handleAddVolunteer} className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
+                  <p className="text-xs font-bold text-indigo-400">＋ 新しいメンバーを追加する</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    <input
+                      type="text"
+                      required
+                      placeholder="氏名 / 本名（必須）"
+                      value={newVolName}
+                      onChange={(e) => setNewVolName(e.target.value)}
+                      className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                    <input
+                      type="text"
+                      placeholder="愛称 / ニックネーム"
+                      value={newVolNickname}
+                      onChange={(e) => setNewVolNickname(e.target.value)}
+                      className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                    <input
+                      type="text"
+                      placeholder="電話番号"
+                      value={newVolContact}
+                      onChange={(e) => setNewVolContact(e.target.value)}
+                      className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                    <input
+                      type="email"
+                      placeholder="メールアドレス"
+                      value={newVolEmail}
+                      onChange={(e) => setNewVolEmail(e.target.value)}
+                      className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                    <input
+                      type="text"
+                      placeholder="住所"
+                      value={newVolAddress}
+                      onChange={(e) => setNewVolAddress(e.target.value)}
+                      className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                    <input
+                      type="text"
+                      placeholder="備考"
+                      value={newVolNotes}
+                      onChange={(e) => setNewVolNotes(e.target.value)}
+                      className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
                   </div>
+                  <button type="submit" className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-sm">
+                    名簿に追加登録する
+                  </button>
+                </form>
+              </div>
 
-                  <form onSubmit={handleAddVolunteer} className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
-                    <p className="text-xs font-bold text-indigo-400">＋ 新しいメンバーを追加する</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                      <input
-                        type="text"
-                        required
-                        placeholder="氏名 / 本名（必須）"
-                        value={newVolName}
-                        onChange={(e) => setNewVolName(e.target.value)}
-                        className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                      />
-                      <input
-                        type="text"
-                        placeholder="愛称 / ニックネーム"
-                        value={newVolNickname}
-                        onChange={(e) => setNewVolNickname(e.target.value)}
-                        className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                      />
-                      <input
-                        type="text"
-                        placeholder="電話番号"
-                        value={newVolContact}
-                        onChange={(e) => setNewVolContact(e.target.value)}
-                        className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                      />
-                      <input
-                        type="email"
-                        placeholder="メールアドレス"
-                        value={newVolEmail}
-                        onChange={(e) => setNewVolEmail(e.target.value)}
-                        className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                      />
-                      <input
-                        type="text"
-                        placeholder="住所"
-                        value={newVolAddress}
-                        onChange={(e) => setNewVolAddress(e.target.value)}
-                        className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                      />
-                      <input
-                        type="text"
-                        placeholder="備考"
-                        value={newVolNotes}
-                        onChange={(e) => setNewVolNotes(e.target.value)}
-                        className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                      />
-                    </div>
-                    <button type="submit" className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-sm">
-                      名簿に追加登録する
-                    </button>
-                  </form>
-                </div>
-              ) : (
-                <div className={`p-4 rounded-xl border text-center text-xs text-slate-400 ${darkMode ? "bg-slate-800/40 border-slate-800" : "bg-slate-100"}`}>
-                  管理者としてログインすると、メンバーの詳細名簿の閲覧・追加・削除が行えるようになります。
-                </div>
-              )}
-            </div>
+              <hr className={darkMode ? "border-slate-800" : "border-indigo-100"} />
 
-            <hr className={darkMode ? "border-slate-800" : "border-indigo-100"} />
-
-            {/* 保護動物リスト管理 */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-500">
-                <Heart className="w-4 h-4" />
-                保護動物リストの管理 ({animals.length}匹)
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {animals.map((anim) => (
-                  <span
-                    key={anim.id}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border ${
-                      darkMode ? "bg-slate-800 border-slate-700 text-slate-200" : "bg-white border-indigo-200 text-slate-700 shadow-sm"
-                    }`}
-                  >
-                    {anim.species === "cat" ? <Cat className="w-3 h-3 text-amber-500" /> : <Dog className="w-3 h-3 text-indigo-400" />}
-                    {anim.name}
-                    {user && (
+              {/* 保護動物リスト管理 */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-500">
+                  <Heart className="w-4 h-4" />
+                  保護動物リストの管理 ({animals.length}匹)
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {animals.map((anim) => (
+                    <span
+                      key={anim.id}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border ${
+                        darkMode ? "bg-slate-800 border-slate-700 text-slate-200" : "bg-white border-indigo-200 text-slate-700 shadow-sm"
+                      }`}
+                    >
+                      {anim.species === "cat" ? <Cat className="w-3 h-3 text-amber-500" /> : <Dog className="w-3 h-3 text-indigo-400" />}
+                      {anim.name}
                       <button onClick={() => handleDeleteAnimal(anim.id)} className="text-slate-400 hover:text-rose-500 ml-1">
                         ×
                       </button>
-                    )}
-                  </span>
-                ))}
-              </div>
+                    </span>
+                  ))}
+                </div>
 
-              {user && (
                 <form onSubmit={handleAddAnimal} className="flex gap-2 pt-1">
                   <select
                     value={newAnimalSpecies}
@@ -846,8 +882,7 @@ export default function Home() {
                     動物追加
                   </button>
                 </form>
-              )}
-            </div>
+              </div>
           </section>
         )}
 
@@ -1115,22 +1150,39 @@ export default function Home() {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleStatusChange(log.id, log.status)}
-                              className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${
-                                log.status === "approved"
-                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                              }`}
-                            >
-                              {log.status === "approved" ? "✔ 承認済み" : "⏳ 確認待ち"}
-                            </button>
-                            <button
-                              onClick={() => handleDelete(log.id, log.title)}
-                              className="text-slate-500 hover:text-rose-400 p-1 print:hidden"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {/* 管理者（isAdmin）のみが承認ステータスを変更・表示切り替え可能 */}
+                            {isAdmin ? (
+                              <button
+                                onClick={() => handleStatusChange(log.id, log.status)}
+                                className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${
+                                  log.status === "approved"
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                    : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                }`}
+                              >
+                                {log.status === "approved" ? "✔ 承認済み" : "⏳ 確認待ち"}
+                              </button>
+                            ) : (
+                              <span
+                                className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${
+                                  log.status === "approved"
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                    : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                }`}
+                              >
+                                {log.status === "approved" ? "✔ 承認済み" : "⏳ 確認待ち"}
+                              </span>
+                            )}
+
+                            {/* 管理者（isAdmin）のみがログ削除可能 */}
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleDelete(log.id, log.title)}
+                                className="text-slate-500 hover:text-rose-400 p-1 print:hidden"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -1247,13 +1299,13 @@ export default function Home() {
             <div className={`p-6 rounded-2xl max-w-sm w-full space-y-4 border ${darkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}>
               <h3 className="text-base font-bold flex items-center gap-2">
                 <Lock className="w-4 h-4 text-indigo-500" />
-                管理者ログイン
+                ログイン
               </h3>
               <form onSubmit={handleLogin} className="space-y-3">
                 <input
                   type="email"
                   required
-                  placeholder="管理者メールアドレス"
+                  placeholder="メールアドレス"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
