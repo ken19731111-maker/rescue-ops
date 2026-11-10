@@ -133,6 +133,8 @@ export default function Home() {
 
   // メイン画面のタブ切り替え
   const [activeTab, setActiveTab] = useState<"logs" | "summary">("logs");
+  // 🔐 認証モーダルの切り替えステート（false: ログイン, true: 新規登録）
+  const [isSignUp, setIsSignUp] = useState(false);
 
   // フォーム状態
   const [type, setType] = useState<"expense" | "donation">("expense");
@@ -380,16 +382,39 @@ export default function Home() {
     }).catch((err) => console.error("プッシュ通知送信エラー:", err));
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      alert("ログイン失敗: " + error.message);
+
+    if (isSignUp) {
+      // 📝 新規登録（サインアップ）
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (error) {
+        alert("新規登録に失敗しました: " + error.message);
+      } else {
+        alert("アカウントを作成しました！");
+        setEmail("");
+        setPassword("");
+        setShowLoginModal(false);
+      }
     } else {
-      setEmail("");
-      setPassword("");
-      setShowLoginModal(false);
+      // 🔑 ログイン
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        alert("ログイン失敗: " + error.message);
+      } else {
+        setEmail("");
+        setPassword("");
+        setShowLoginModal(false);
+      }
     }
     setLoginLoading(false);
   };
@@ -1294,47 +1319,89 @@ export default function Home() {
         )}
 
         {/* ログインモーダル */}
+{/* 🔐 ログイン / 新規登録 モーダル */}
         {showLoginModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className={`p-6 rounded-2xl max-w-sm w-full space-y-4 border ${darkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}>
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <Lock className="w-4 h-4 text-indigo-500" />
-                ログイン
-              </h3>
-              <form onSubmit={handleLogin} className="space-y-3">
-                <input
-                  type="email"
-                  required
-                  placeholder="メールアドレス"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                />
-                <input
-                  type="password"
-                  required
-                  placeholder="パスワード"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                />
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowLoginModal(false)}
-                    className="px-3 py-1.5 rounded-xl border text-xs font-semibold"
-                  >
-                    キャンセル
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loginLoading}
-                    className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
-                  >
-                    {loginLoading ? "ログイン中..." : "ログイン"}
-                  </button>
+              <div className="flex items-center justify-between border-b pb-3 border-slate-700/50">
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-indigo-500" />
+                  {isSignUp ? "ボランティア新規登録" : "アカウントログイン"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowLoginModal(false)}
+                  className="text-xs text-slate-400 hover:text-slate-200"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleAuth} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">メールアドレス</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="example@rescue.org"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1">パスワード（6文字以上）</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loginLoading}
+                  className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition-all mt-2"
+                >
+                  {loginLoading
+                    ? "処理中..."
+                    : isSignUp
+                    ? "新規登録して始める"
+                    : "ログイン"}
+                </button>
               </form>
+
+              {/* 🔄 ログイン / 新規登録の切り替えフッター */}
+              <div className="pt-2 border-t border-slate-700/40 text-center">
+                {isSignUp ? (
+                  <p className="text-xs text-slate-400">
+                    すでにアカウントをお持ちの方は{" "}
+                    <button
+                      type="button"
+                      onClick={() => setIsSignUp(false)}
+                      className="text-indigo-400 font-bold hover:underline ml-1"
+                    >
+                      ログインはこちら
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    アカウントをお持ちでない方は{" "}
+                    <button
+                      type="button"
+                      onClick={() => setIsSignUp(true)}
+                      className="text-indigo-400 font-bold hover:underline ml-1"
+                    >
+                      新規登録はこちら
+                    </button>
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}
