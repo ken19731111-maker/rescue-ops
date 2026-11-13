@@ -26,6 +26,7 @@ import {
   RotateCcw,
   Heart,
   FileSpreadsheet,
+  FileText,
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
@@ -63,7 +64,6 @@ type Animal = {
   species: string;
 };
 
-// 🎮 体験デモモード用の初期ダミーデータ（DBには一切保存されません）
 const INITIAL_DEMO_ANIMALS: Animal[] = [
   { id: "demo-a1", name: "ミケ（三毛・メス）", species: "cat" },
   { id: "demo-a2", name: "チャチャ（茶トラ・オス）", species: "cat" },
@@ -165,6 +165,9 @@ export default function Home() {
   // ⚙️ 設定・管理パネル
   const [showSettings, setShowSettings] = useState(false);
 
+  // 🖨️ 領収書添付台紙の印刷モード
+  const [isPrintReceiptSheet, setIsPrintReceiptSheet] = useState(false);
+
   // 新規ボランティア追加用
   const [newVolName, setNewVolName] = useState("");
   const [newVolNickname, setNewVolNickname] = useState("");
@@ -190,7 +193,7 @@ export default function Home() {
   const [regAdminName, setRegAdminName] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // メイン画面のタブ切り替え（活動ログ / 助成金・収支レポート）
+  // メイン画面のタブ切り替え
   const [activeTab, setActiveTab] = useState<"logs" | "summary">("logs");
 
   // フォーム状態
@@ -207,7 +210,7 @@ export default function Home() {
   const [filter, setFilter] = useState<"all" | "expense" | "donation" | "pending">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  // 助成金集計用の対象期間（"all" または "YYYY-MM"）
+  // 助成金集計用の対象期間
   const [reportPeriod, setReportPeriod] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("");
 
@@ -215,7 +218,6 @@ export default function Home() {
     setSelectedMonth(new Date().toISOString().slice(0, 7));
   }, []);
 
-  // 🎮 デモモード開始・終了
   const startDemoMode = () => {
     setIsDemoMode(true);
     setUserOrgId("demo-org-id");
@@ -239,7 +241,6 @@ export default function Home() {
     setAnimals([]);
   };
 
-  // 🔑 ユーザーのプロファイルと所属団体情報を取得する関数
   const checkUserPermission = async (currentUser: any) => {
     if (!currentUser) {
       setUserRole(null);
@@ -295,7 +296,6 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 所属団体が変わったらデータを再取得（デモモード時はスキップ）
   useEffect(() => {
     if (isDemoMode) return;
     if (userOrgId) {
@@ -449,7 +449,6 @@ export default function Home() {
     setLoginLoading(false);
   };
 
-  // 🏢 新規団体・アカウント登録処理（スラッグ重複チェック付き）
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!regOrgName.trim() || !regOrgSlug.trim() || !regAdminName.trim()) {
@@ -458,7 +457,6 @@ export default function Home() {
     }
 
     setLoginLoading(true);
-
     const cleanSlug = regOrgSlug.trim().toLowerCase().replace(/[^a-z0-9-_]/g, "");
 
     const { data: existingOrg } = await supabase
@@ -684,7 +682,6 @@ export default function Home() {
     return true;
   });
 
-  // 📊 助成金・収支レポート用の集計ロジック
   const reportLogs = logs.filter((log) => {
     if (reportPeriod === "month" && selectedMonth) {
       return log.created_at.startsWith(selectedMonth);
@@ -703,7 +700,6 @@ export default function Home() {
     .filter((l) => l.type === "donation")
     .reduce((sum, l) => sum + (l.amount || 0), 0);
 
-  // カテゴリ別集計
   const categoryStats = CATEGORIES.map((cat) => {
     const items = reportExpenses.filter((l) => (l.category || "その他") === cat);
     const approved = items.filter((l) => l.status === "approved").reduce((s, l) => s + (l.amount || 0), 0);
@@ -717,7 +713,6 @@ export default function Home() {
     };
   });
 
-  // 保護動物（個体）別集計
   const animalStats = animals.map((animal) => {
     const items = reportExpenses.filter((l) => l.animal_id === animal.id);
     const medical = items
@@ -741,6 +736,110 @@ export default function Home() {
 
   const isAdmin = userRole === "admin" || userRole === "org_admin";
 
+  // 🖨️ 領収書添付台紙の印刷モード専用レイアウト
+  if (isPrintReceiptSheet) {
+    const approvedExpenses = logs.filter((l) => l.type === "expense" && l.status === "approved");
+    return (
+      <div className="min-h-screen bg-white text-slate-900 p-8 font-sans">
+        <div className="max-w-3xl mx-auto space-y-6">
+          {/* 印刷操作バー（印刷時は非表示） */}
+          <div className="flex justify-between items-center bg-slate-100 p-4 rounded-xl print:hidden border border-slate-200">
+            <div>
+              <h2 className="text-sm font-bold text-slate-800">🖨️ 領収書・レシート添付台紙（印刷プレビュー）</h2>
+              <p className="text-xs text-slate-500">ブラウザの印刷機能から「PDFとして保存」または印刷を行ってください。</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-sm hover:bg-indigo-500"
+              >
+                印刷 / PDF保存
+              </button>
+              <button
+                onClick={() => setIsPrintReceiptSheet(false)}
+                className="px-4 py-2 bg-slate-300 text-slate-800 rounded-xl text-xs font-bold hover:bg-slate-400"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+
+          {/* A4台紙本体 */}
+          <div className="border-2 border-slate-800 p-8 space-y-6 bg-white">
+            <div className="text-center border-b-2 border-slate-800 pb-4">
+              <h1 className="text-xl font-black tracking-wider">領収書・レシート貼付台紙</h1>
+              <p className="text-xs text-slate-600 mt-1">
+                団体名：<strong>{userOrgName || "保護猫・動物愛護団体"}</strong> ｜ 対象期間：{reportPeriod === "month" ? selectedMonth : "全期間累計"}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <table className="w-full text-left text-xs border-collapse border border-slate-400">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-800">
+                    <th className="border border-slate-400 p-2">日付</th>
+                    <th className="border border-slate-400 p-2">科目</th>
+                    <th className="border border-slate-400 p-2">支払先・内容</th>
+                    <th className="border border-slate-400 p-2">対象動物</th>
+                    <th className="border border-slate-400 p-2">申請者</th>
+                    <th className="border border-slate-400 p-2 text-right">金額 (円)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {approvedExpenses.map((exp) => {
+                    const anim = animals.find((a) => a.id === exp.animal_id);
+                    return (
+                      <tr key={exp.id}>
+                        <td className="border border-slate-400 p-2">{new Date(exp.created_at).toLocaleDateString("ja-JP")}</td>
+                        <td className="border border-slate-400 p-2 font-semibold">{exp.category || "その他"}</td>
+                        <td className="border border-slate-400 p-2">{exp.title}</td>
+                        <td className="border border-slate-400 p-2">{anim ? anim.name : "-"}</td>
+                        <td className="border border-slate-400 p-2">{exp.volunteer_name}</td>
+                        <td className="border border-slate-400 p-2 text-right font-bold">¥{(exp.amount || 0).toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <div className="flex justify-end pt-2">
+                <div className="border border-slate-800 px-6 py-2 bg-slate-50 text-sm font-black">
+                  承認済み経費 総計: ¥{approvedExpenseTotal.toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            {/* レシート貼付エリア */}
+            <div className="border-t-2 border-dashed border-slate-400 pt-6 space-y-4">
+              <h3 className="text-xs font-bold text-slate-700">【領収書・レシート貼付スペース】</h3>
+              <div className="grid grid-cols-2 gap-4">
+                {approvedExpenses.map((exp, idx) => (
+                  <div key={exp.id} className="border border-slate-400 p-3 h-48 flex flex-col justify-between bg-slate-50/50">
+                    <div className="text-[10px] font-bold text-slate-600">
+                      #{idx + 1} {exp.title} (¥{(exp.amount || 0).toLocaleString()})
+                    </div>
+                    {exp.image_url ? (
+                      <img src={exp.image_url} alt="レシート" className="max-h-32 object-contain mx-auto" />
+                    ) : (
+                      <div className="text-center text-[10px] text-slate-400 my-auto">
+                        [ここにレシートを貼付 または デジタル画像添付]
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 pt-8 text-xs font-semibold">
+              <div>代表者確認印： _______________________</div>
+              <div className="text-right">経理担当確認印： _______________________</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`min-h-screen transition-colors duration-300 p-4 md:p-8 relative ${
@@ -749,13 +848,13 @@ export default function Home() {
     >
       <div className="max-w-4xl mx-auto space-y-6">
         
-        {/* 🎮 デモモード中の案内バナー */}
+        {/* 🎮 デモモード案内バナー */}
         {isDemoMode && (
           <div className="rounded-2xl p-3.5 bg-amber-500/15 border border-amber-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
             <div className="flex items-center gap-2 text-xs font-semibold text-amber-500">
               <Play className="w-4 h-4 fill-current shrink-0" />
               <span>
-                <strong>体験デモモード中：</strong> 入力や承認を自由にお試しいただけます。ページを閉じるか「デモ終了」を押すと元のデータに戻ります。
+                <strong>体験デモモード中：</strong> 入力や承認を自由にお試しいただけます。ページを閉じるか「デモ終了」でリセットされます。
               </span>
             </div>
             <button
@@ -813,6 +912,16 @@ export default function Home() {
             )}
 
             <button
+              onClick={() => setIsPrintReceiptSheet(true)}
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
+                darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              <FileText className="w-4 h-4 text-emerald-500" />
+              領収書台紙 印刷
+            </button>
+
+            <button
               onClick={toggleDarkMode}
               className={`p-2.5 rounded-xl border transition-all ${
                 darkMode
@@ -821,16 +930,6 @@ export default function Home() {
               }`}
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-
-            <button
-              onClick={handlePrint}
-              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              <Printer className="w-4 h-4 text-indigo-500" />
-              印刷
             </button>
 
             <button
@@ -884,14 +983,13 @@ export default function Home() {
           </div>
         </header>
 
-        {/* ⚙️ 管理者専用パネル（名簿 ＋ 保護動物管理） */}
+        {/* ⚙️ 管理者専用パネル */}
         {showSettings && isAdmin && (
           <section
             className={`rounded-2xl p-5 border shadow-sm space-y-6 transition-all print:hidden ${
               darkMode ? "bg-slate-900/90 border-indigo-500/30" : "bg-indigo-50/50 border-indigo-200"
             }`}
           >
-            {/* 1. ボランティア名簿管理 */}
             <div className="space-y-3">
               <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-500">
                 <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -960,7 +1058,6 @@ export default function Home() {
               </form>
             </div>
 
-            {/* 2. 保護動物（個体）の管理 */}
             <div className="space-y-3 pt-2 border-t border-slate-700/30">
               <h3 className="text-sm font-bold flex items-center gap-2 text-amber-500">
                 <Heart className="w-4 h-4" />
@@ -1143,7 +1240,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* 🔄 メインタブ切り替え（活動ログ一覧 vs 助成金・収支レポート） */}
+        {/* 🔄 メインタブ切り替え */}
         {userOrgId && (
           <div className="flex gap-2 border-b border-slate-700/30 pb-2 print:hidden">
             <button
@@ -1175,10 +1272,9 @@ export default function Home() {
           </div>
         )}
 
-        {/* 📊 タブ2：助成金・収支レポートダッシュボード */}
+        {/* 📊 タブ2：助成金レポートダッシュボード */}
         {userOrgId && activeTab === "summary" && (
           <section className="space-y-6">
-            {/* 期間選択バー */}
             <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
               <div className="flex items-center gap-2 text-xs font-bold">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
@@ -1213,10 +1309,16 @@ export default function Home() {
                     className={`px-3 py-1.5 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
                   />
                 )}
+                <button
+                  onClick={() => setIsPrintReceiptSheet(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  領収書台紙を印刷する
+                </button>
               </div>
             </div>
 
-            {/* サマリーカード3枚 */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className={`p-5 rounded-2xl border ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
                 <p className="text-xs font-semibold text-emerald-500">✔ 承認済み経費合計（助成対象確定）</p>
@@ -1232,15 +1334,11 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 1. カテゴリ別集計テーブル（助成金支出内訳書用） */}
             <div className={`p-5 rounded-2xl border space-y-4 ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
               <div>
                 <h3 className="text-sm font-bold flex items-center gap-2">
                   📑 助成金区分（カテゴリ）別 支出内訳
                 </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  自治体や民間基金の「収支報告書・支出内訳書」へそのまま転記できる科目別集計です。
-                </p>
               </div>
 
               <div className="overflow-x-auto rounded-xl border border-slate-700/30">
@@ -1269,15 +1367,11 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 2. 保護動物（個体）別 医療費・経費集計（1頭上限補助金用） */}
             <div className={`p-5 rounded-2xl border space-y-4 ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
               <div>
                 <h3 className="text-sm font-bold flex items-center gap-2">
                   🐾 保護動物（個体）別 コスト明細
                 </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  「1頭あたり上限○万円」などの不妊去勢・医療費助成金の申請に活用できます。
-                </p>
               </div>
 
               <div className="overflow-x-auto rounded-xl border border-slate-700/30">
