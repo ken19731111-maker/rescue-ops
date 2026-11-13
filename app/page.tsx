@@ -10,7 +10,6 @@ import {
   PlusCircle,
   Trash2,
   Download,
-  Printer,
   Lock,
   Unlock,
   LogOut,
@@ -27,6 +26,10 @@ import {
   Heart,
   FileSpreadsheet,
   FileText,
+  Link as LinkIcon,
+  Copy,
+  Check,
+  QrCode,
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
@@ -168,6 +171,9 @@ export default function Home() {
   // 🖨️ 領収書添付台紙の印刷モード
   const [isPrintReceiptSheet, setIsPrintReceiptSheet] = useState(false);
 
+  // 🔗 招待リンクコピー完了通知
+  const [copiedLink, setCopiedLink] = useState(false);
+
   // 新規ボランティア追加用
   const [newVolName, setNewVolName] = useState("");
   const [newVolNickname, setNewVolNickname] = useState("");
@@ -177,10 +183,11 @@ export default function Home() {
   const [newAnimalName, setNewAnimalName] = useState("");
   const [newAnimalSpecies, setNewAnimalSpecies] = useState("cat");
 
-  // 認証 & 権限の状態
+  // 認証 & 団体情報の状態
   const [user, setUser] = useState<any>(null);
   const [userOrgId, setUserOrgId] = useState<string | null>(null);
   const [userOrgName, setUserOrgName] = useState<string | null>(null);
+  const [userOrgSlug, setUserOrgSlug] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isSignUpMode, setIsSignUpMode] = useState(false);
@@ -222,6 +229,7 @@ export default function Home() {
     setIsDemoMode(true);
     setUserOrgId("demo-org-id");
     setUserOrgName("サンプル保護猫ボランティア（体験デモ）");
+    setUserOrgSlug("sample-cats");
     setUserRole("org_admin");
     setLogs(getInitialDemoLogs());
     setVolunteers(INITIAL_DEMO_VOLUNTEERS);
@@ -234,6 +242,7 @@ export default function Home() {
     setIsDemoMode(false);
     setUserOrgId(null);
     setUserOrgName(null);
+    setUserOrgSlug(null);
     setUserRole(null);
     setShowSettings(false);
     setLogs([]);
@@ -241,11 +250,36 @@ export default function Home() {
     setAnimals([]);
   };
 
+  // 🔗 URLパラメータ (?org=slug) から団体情報を読み込む（ログイン不要のボランティア用）
+  const loadOrgBySlug = async (slug: string) => {
+    const { data: orgData } = await supabase
+      .from("organizations")
+      .select("id, name, slug")
+      .eq("slug", slug)
+      .maybeSingle();
+
+    if (orgData) {
+      setUserOrgId(orgData.id);
+      setUserOrgName(orgData.name);
+      setUserOrgSlug(orgData.slug);
+    } else {
+      setLoading(false);
+    }
+  };
+
   const checkUserPermission = async (currentUser: any) => {
     if (!currentUser) {
       setUserRole(null);
-      setUserOrgId(null);
-      setUserOrgName(null);
+      // URLに ?org= が指定されている場合は団体状態を維持する
+      const params = new URLSearchParams(window.location.search);
+      const slugParam = params.get("org");
+      if (slugParam) {
+        await loadOrgBySlug(slugParam);
+      } else {
+        setUserOrgId(null);
+        setUserOrgName(null);
+        setUserOrgSlug(null);
+      }
       return;
     }
 
@@ -262,10 +296,13 @@ export default function Home() {
       if (profileData.organization_id) {
         const { data: orgData } = await supabase
           .from("organizations")
-          .select("name")
+          .select("name, slug")
           .eq("id", profileData.organization_id)
           .maybeSingle();
-        if (orgData) setUserOrgName(orgData.name);
+        if (orgData) {
+          setUserOrgName(orgData.name);
+          setUserOrgSlug(orgData.slug);
+        }
       }
     } else {
       setUserRole("volunteer");
@@ -345,6 +382,20 @@ export default function Home() {
       .eq("organization_id", userOrgId)
       .order("name");
     if (data) setAnimals(data);
+  };
+
+  // 🔗 団体専用招待URLを生成・コピー
+  const getInviteUrl = () => {
+    if (typeof window === "undefined" || !userOrgSlug) return "";
+    return `${window.location.origin}/?org=${userOrgSlug}`;
+  };
+
+  const handleCopyInviteLink = () => {
+    const url = getInviteUrl();
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
   };
 
   const handleAddVolunteer = async (e: React.FormEvent) => {
@@ -617,6 +668,10 @@ export default function Home() {
   };
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
+    if (!isAdmin) {
+      alert("承認ステータスの変更は団体管理者のみ行えます。");
+      return;
+    }
     const newStatus = currentStatus === "approved" ? "pending" : "approved";
     if (isDemoMode) {
       setLogs((prev) => prev.map((l) => (l.id === id ? { ...l, status: newStatus } : l)));
@@ -627,6 +682,10 @@ export default function Home() {
   };
 
   const handleDelete = async (id: string, logTitle: string) => {
+    if (!isAdmin) {
+      alert("データの削除は団体管理者のみ行えます。");
+      return;
+    }
     if (!confirm(`「${logTitle}」を削除しますか？`)) return;
     if (isDemoMode) {
       setLogs((prev) => prev.filter((l) => l.id !== id));
@@ -637,17 +696,32 @@ export default function Home() {
   };
 
   const exportToCSV = () => {
-    if (filteredLogs.length === 0) {
-      alert("データがありません。");
+    const targetData = reportPeriod === "month" && selectedMonth
+      ? logs.filter((l) => l.created_at.startsWith(selectedMonth))
+      : filteredLogs;
+
+    if (targetData.length === 0) {
+      alert("出力対象のデータがありません。");
       return;
     }
 
-    const headers = ["ID", "日時", "申請者/愛称", "種別", "カテゴリ", "対象動物", "項目名", "金額/数量", "詳細", "ステータス"];
-    const rows = filteredLogs.map((log) => {
+    const headers = [
+      "ID",
+      "日付",
+      "申請者(愛称)",
+      "種別",
+      "助成金区分(カテゴリ)",
+      "対象動物",
+      "支払先・項目名",
+      "金額/数量",
+      "備考・詳細",
+      "承認ステータス",
+    ];
+    const rows = targetData.map((log) => {
       const animalObj = animals.find((a) => a.id === log.animal_id);
       return [
         log.id,
-        new Date(log.created_at).toLocaleString("ja-JP"),
+        new Date(log.created_at).toLocaleDateString("ja-JP"),
         `"${log.volunteer_name || ""}"`,
         log.type === "expense" ? "経費精算" : "物資寄付",
         `"${log.category || ""}"`,
@@ -664,14 +738,11 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `RescueOps_GrantReport_${new Date().toISOString().slice(0, 10)}.csv`);
+    const suffix = reportPeriod === "month" ? selectedMonth : new Date().toISOString().slice(0, 10);
+    link.setAttribute("download", `RescueOps_GrantReport_${userOrgSlug || "org"}_${suffix}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const handlePrint = () => {
-    window.print();
   };
 
   const filteredLogs = logs.filter((log) => {
@@ -738,11 +809,10 @@ export default function Home() {
 
   // 🖨️ 領収書添付台紙の印刷モード専用レイアウト
   if (isPrintReceiptSheet) {
-    const approvedExpenses = logs.filter((l) => l.type === "expense" && l.status === "approved");
+    const approvedExpenses = reportExpenses.filter((l) => l.status === "approved");
     return (
       <div className="min-h-screen bg-white text-slate-900 p-8 font-sans">
         <div className="max-w-3xl mx-auto space-y-6">
-          {/* 印刷操作バー（印刷時は非表示） */}
           <div className="flex justify-between items-center bg-slate-100 p-4 rounded-xl print:hidden border border-slate-200">
             <div>
               <h2 className="text-sm font-bold text-slate-800">🖨️ 領収書・レシート添付台紙（印刷プレビュー）</h2>
@@ -764,7 +834,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* A4台紙本体 */}
           <div className="border-2 border-slate-800 p-8 space-y-6 bg-white">
             <div className="text-center border-b-2 border-slate-800 pb-4">
               <h1 className="text-xl font-black tracking-wider">領収書・レシート貼付台紙</h1>
@@ -809,7 +878,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* レシート貼付エリア */}
             <div className="border-t-2 border-dashed border-slate-400 pt-6 space-y-4">
               <h3 className="text-xs font-bold text-slate-700">【領収書・レシート貼付スペース】</h3>
               <div className="grid grid-cols-2 gap-4">
@@ -897,7 +965,7 @@ export default function Home() {
             {isAdmin && (
               <button
                 onClick={() => setShowSettings(!showSettings)}
-                title="名簿・保護動物の管理"
+                title="名簿・保護動物・招待リンク管理"
                 className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   showSettings
                     ? "bg-indigo-600 border-indigo-500 text-white"
@@ -907,19 +975,21 @@ export default function Home() {
                 }`}
               >
                 <Settings className="w-4 h-4" />
-                名簿・保護動物管理
+                団体管理・招待リンク
               </button>
             )}
 
-            <button
-              onClick={() => setIsPrintReceiptSheet(true)}
-              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              <FileText className="w-4 h-4 text-emerald-500" />
-              領収書台紙 印刷
-            </button>
+            {userOrgId && (
+              <button
+                onClick={() => setIsPrintReceiptSheet(true)}
+                className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
+                  darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <FileText className="w-4 h-4 text-emerald-500" />
+                領収書台紙 印刷
+              </button>
+            )}
 
             <button
               onClick={toggleDarkMode}
@@ -932,15 +1002,17 @@ export default function Home() {
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            <button
-              onClick={exportToCSV}
-              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700"
-              }`}
-            >
-              <Download className="w-4 h-4 text-indigo-500" />
-              CSV出力
-            </button>
+            {userOrgId && (
+              <button
+                onClick={exportToCSV}
+                className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
+                  darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700"
+                }`}
+              >
+                <Download className="w-4 h-4 text-indigo-500" />
+                CSV出力
+              </button>
+            )}
 
             {user ? (
               <div className="flex items-center gap-2">
@@ -975,7 +1047,7 @@ export default function Home() {
                     className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    ログイン / 団体登録
+                    管理者ログイン / 団体登録
                   </button>
                 </div>
               )
@@ -983,13 +1055,62 @@ export default function Home() {
           </div>
         </header>
 
-        {/* ⚙️ 管理者専用パネル */}
+        {/* ⚙️ 管理者専用パネル（招待URL・QRコード ＋ 名簿 ＋ 保護動物） */}
         {showSettings && isAdmin && (
           <section
             className={`rounded-2xl p-5 border shadow-sm space-y-6 transition-all print:hidden ${
               darkMode ? "bg-slate-900/90 border-indigo-500/30" : "bg-indigo-50/50 border-indigo-200"
             }`}
           >
+            {/* 0. ボランティア招待専用リンク＆QRコード */}
+            {userOrgSlug && (
+              <div className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/80 border-indigo-500/30" : "bg-white border-indigo-200"}`}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-400">
+                    <LinkIcon className="w-4 h-4" />
+                    ボランティア専用アクセスURL（ログイン不要）
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400">
+                  このURLやQRコードをボランティアメンバーに共有すると、アカウント登録やログインなしで自団体の申請画面に直接アクセスできます（他団体のデータは見えません）。
+                </p>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <div className="flex-1 w-full space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={getInviteUrl()}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-mono ${darkMode ? "bg-slate-950 border-slate-700 text-indigo-300" : "bg-slate-50 border-slate-200 text-indigo-700"}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyInviteLink}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shrink-0"
+                      >
+                        {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedLink ? "コピー済" : "URLコピー"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* QRコード自動生成表示 */}
+                  <div className="p-2 bg-white rounded-xl border border-slate-200 shrink-0 text-center">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getInviteUrl())}`}
+                      alt="団体専用QRコード"
+                      className="w-24 h-24 mx-auto"
+                    />
+                    <span className="text-[10px] font-bold text-slate-600 flex items-center justify-center gap-1 mt-1">
+                      <QrCode className="w-3 h-3" /> スマホ読み取り用
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 1. ボランティア名簿管理 */}
             <div className="space-y-3">
               <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-500">
                 <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -1058,6 +1179,7 @@ export default function Home() {
               </form>
             </div>
 
+            {/* 2. 保護動物（個体）の管理 */}
             <div className="space-y-3 pt-2 border-t border-slate-700/30">
               <h3 className="text-sm font-bold flex items-center gap-2 text-amber-500">
                 <Heart className="w-4 h-4" />
@@ -1108,7 +1230,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* 📝 新規申請フォーム */}
+        {/* 📝 新規申請フォーム（団体にアクセス中ならログイン不要で利用可能） */}
         {userOrgId && (
           <section className={`rounded-2xl p-6 border shadow-sm print:hidden ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
             <h2 className="text-base font-bold mb-4 flex items-center gap-2">
@@ -1444,7 +1566,7 @@ export default function Home() {
             ) : filteredLogs.length === 0 ? (
               <div className={`p-8 rounded-2xl border text-center space-y-3 ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
                 <p className="text-xs text-slate-400">
-                  表示するデータがありません。ログインして団体を登録するか、右上の「🎮 デモ体験」をお試しください。
+                  表示するデータがありません。管理者は「管理者ログイン / 団体登録」からログインするか、「🎮 デモ体験」をお試しください。
                 </p>
               </div>
             ) : (
@@ -1490,9 +1612,11 @@ export default function Home() {
                           >
                             {log.status === "approved" ? "✔ 承認済み" : "⏳ 確認待ち"}
                           </button>
-                          <button onClick={() => handleDelete(log.id, log.title)} className="text-slate-500 hover:text-rose-400">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isAdmin && (
+                            <button onClick={() => handleDelete(log.id, log.title)} className="text-slate-500 hover:text-rose-400">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="flex justify-between items-start gap-4">
@@ -1519,7 +1643,7 @@ export default function Home() {
               <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
                 <h3 className="text-base font-bold flex items-center gap-2">
                   <Building className="w-4 h-4 text-indigo-500" />
-                  {isSignUpMode ? "新規団体・アカウント登録" : "ログイン"}
+                  {isSignUpMode ? "新規団体・アカウント登録" : "管理者ログイン"}
                 </h3>
                 <button
                   type="button"
