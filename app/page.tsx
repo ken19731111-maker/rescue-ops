@@ -30,6 +30,8 @@ import {
   Copy,
   Check,
   QrCode,
+  Mail,
+  MapPin,
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
@@ -59,6 +61,7 @@ type Volunteer = {
   address: string | null;
   notes: string | null;
   role: string | null;
+  member_type?: string | null;
 };
 
 type Animal = {
@@ -74,9 +77,9 @@ const INITIAL_DEMO_ANIMALS: Animal[] = [
 ];
 
 const INITIAL_DEMO_VOLUNTEERS: Volunteer[] = [
-  { id: "demo-v1", name: "佐藤 花子", nickname: "はなこ", contact: "090-0000-1111", email: "hanako@example.com", address: null, notes: "預かり担当", role: "団体管理者" },
-  { id: "demo-v2", name: "鈴木 一郎", nickname: "すずき", contact: "090-0000-2222", email: "suzuki@example.com", address: null, notes: "通院・搬送担当", role: "ボランティア" },
-  { id: "demo-v3", name: "高橋 美咲", nickname: "みさき", contact: "090-0000-3333", email: "misaki@example.com", address: null, notes: "TNR現場担当", role: "ボランティア" },
+  { id: "demo-v1", name: "佐藤 花子", nickname: "はなこ", contact: "090-0000-1111", email: "hanako@example.com", address: "宮城県仙台市青葉区1-1", notes: "預かり担当", role: "団体管理者", member_type: "volunteer" },
+  { id: "demo-v2", name: "鈴木 一郎", nickname: "すずき", contact: "090-0000-2222", email: "suzuki@example.com", address: "宮城県仙台市泉区2-2", notes: "通院・搬送担当", role: "ボランティア", member_type: "volunteer" },
+  { id: "demo-v3", name: "山田 太郎", nickname: "やまだ様", contact: "080-9999-8888", email: "yamada.donor@example.com", address: "東京都渋谷区3-3", notes: "毎月フード寄付", role: "寄付者", member_type: "donor" },
 ];
 
 const getInitialDemoLogs = (): ActivityLog[] => {
@@ -117,22 +120,9 @@ const getInitialDemoLogs = (): ActivityLog[] => {
       details: "シェルター常備用",
       image_url: null,
       status: "pending",
-      volunteer_name: "みさき",
+      volunteer_name: "すずき",
       category: "消耗品",
       animal_id: null,
-    },
-    {
-      id: "demo-l4",
-      created_at: now,
-      type: "expense",
-      title: "動物病院への往復ガソリン代・高速代",
-      amount: 2100,
-      details: "クロの定期検診搬送",
-      image_url: null,
-      status: "approved",
-      volunteer_name: "すずき",
-      category: "交通費",
-      animal_id: "demo-a3",
     },
     {
       id: "demo-l5",
@@ -143,7 +133,7 @@ const getInitialDemoLogs = (): ActivityLog[] => {
       details: "Amazonほしい物リスト経由",
       image_url: null,
       status: "approved",
-      volunteer_name: "はなこ",
+      volunteer_name: "やまだ様",
       category: "フード",
       animal_id: null,
     },
@@ -152,6 +142,27 @@ const getInitialDemoLogs = (): ActivityLog[] => {
 
 const CATEGORIES = ["医療費", "フード", "消耗品", "交通費", "その他"] as const;
 
+function generateSlugFromOrgName(name: string): string {
+  let base = name
+    .trim()
+    .toLowerCase()
+    .replace(/保護猫|ほごねこ/g, "hogoneko")
+    .replace(/保護犬|ほごいぬ/g, "hogoinu")
+    .replace(/ねこ|ネコ|猫/g, "neko")
+    .replace(/いぬ|イヌ|犬/g, "inu")
+    .replace(/ボランティア/g, "vol")
+    .replace(/団体|会|クラブ|チーム/g, "group")
+    .replace(/[^a-z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  if (!base || base.length < 3) {
+    base = "rescue";
+  }
+  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+  return `${base.slice(0, 15)}-${randomSuffix}`;
+}
+
 export default function Home() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
@@ -159,31 +170,22 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // 🎮 デモモード状態
   const [isDemoMode, setIsDemoMode] = useState(false);
-
-  // 🌙 ダークモード
   const [darkMode, setDarkMode] = useState(false);
-
-  // ⚙️ 設定・管理パネル
   const [showSettings, setShowSettings] = useState(false);
-
-  // 🖨️ 領収書添付台紙の印刷モード
   const [isPrintReceiptSheet, setIsPrintReceiptSheet] = useState(false);
-
-  // 🔗 招待リンクコピー完了通知
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // 新規ボランティア追加用
+  const [newVolType, setNewVolType] = useState<"volunteer" | "donor">("volunteer");
   const [newVolName, setNewVolName] = useState("");
   const [newVolNickname, setNewVolNickname] = useState("");
   const [newVolContact, setNewVolContact] = useState("");
+  const [newVolEmail, setNewVolEmail] = useState("");
+  const [newVolAddress, setNewVolAddress] = useState("");
 
-  // 新規動物追加用
   const [newAnimalName, setNewAnimalName] = useState("");
   const [newAnimalSpecies, setNewAnimalSpecies] = useState("cat");
 
-  // 認証 & 団体情報の状態
   const [user, setUser] = useState<any>(null);
   const [userOrgId, setUserOrgId] = useState<string | null>(null);
   const [userOrgName, setUserOrgName] = useState<string | null>(null);
@@ -192,18 +194,16 @@ export default function Home() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isSignUpMode, setIsSignUpMode] = useState(false);
 
-  // ログイン・登録フォーム用ステート
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [regOrgName, setRegOrgName] = useState("");
   const [regOrgSlug, setRegOrgSlug] = useState("");
+  const [isSlugManuallyEdited, setIsSlugManuallyEdited] = useState(false);
   const [regAdminName, setRegAdminName] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // メイン画面のタブ切り替え
   const [activeTab, setActiveTab] = useState<"logs" | "summary">("logs");
 
-  // フォーム状態
   const [type, setType] = useState<"expense" | "donation">("expense");
   const [volunteerName, setVolunteerName] = useState("匿名");
   const [category, setCategory] = useState("医療費");
@@ -213,17 +213,115 @@ export default function Home() {
   const [details, setDetails] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
 
-  // フィルター
   const [filter, setFilter] = useState<"all" | "expense" | "donation" | "pending">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  // 助成金集計用の対象期間
   const [reportPeriod, setReportPeriod] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("");
 
   useEffect(() => {
     setSelectedMonth(new Date().toISOString().slice(0, 7));
+    const savedTheme = localStorage.getItem("rescueops_theme");
+    if (savedTheme === "dark") setDarkMode(true);
+
+    const cachedVolunteer = localStorage.getItem("rescueops_last_volunteer");
+    if (cachedVolunteer) setVolunteerName(cachedVolunteer);
   }, []);
+
+  const handleOrgNameChange = (val: string) => {
+    setRegOrgName(val);
+    if (!isSlugManuallyEdited) {
+      if (val.trim()) {
+        setRegOrgSlug(generateSlugFromOrgName(val));
+      } else {
+        setRegOrgSlug("");
+      }
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initApp() {
+      const params = new URLSearchParams(window.location.search);
+      const slugParam = params.get("org");
+
+      if (slugParam) {
+        const { data: orgData } = await supabase
+          .from("organizations")
+          .select("id, name, slug")
+          .eq("slug", slugParam)
+          .maybeSingle();
+
+        if (isMounted && orgData) {
+          setUserOrgId(orgData.id);
+          setUserOrgName(orgData.name);
+          setUserOrgSlug(orgData.slug);
+          setLoading(false);
+          return;
+        }
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const sessionUser = session?.user ?? null;
+      if (!isMounted) return;
+
+      setUser(sessionUser);
+
+      if (sessionUser) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("role, organization_id")
+          .eq("id", sessionUser.id)
+          .maybeSingle();
+
+        if (isMounted && profileData) {
+          setUserRole(profileData.role);
+          setUserOrgId(profileData.organization_id);
+
+          if (profileData.organization_id) {
+            const { data: orgData } = await supabase
+              .from("organizations")
+              .select("name, slug")
+              .eq("id", profileData.organization_id)
+              .maybeSingle();
+            if (isMounted && orgData) {
+              setUserOrgName(orgData.name);
+              setUserOrgSlug(orgData.slug);
+            }
+          }
+        } else if (isMounted) {
+          setUserRole("volunteer");
+        }
+      }
+      if (isMounted) setLoading(false);
+    }
+
+    initApp();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const sessionUser = session?.user ?? null;
+      setUser(sessionUser);
+      if (!sessionUser) {
+        setUserRole(null);
+        setUserOrgId(null);
+        setUserOrgName(null);
+        setUserOrgSlug(null);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isDemoMode) return;
+    if (userOrgId) {
+      fetchInitialData();
+    }
+  }, [userOrgId, isDemoMode]);
 
   const startDemoMode = () => {
     setIsDemoMode(true);
@@ -250,98 +348,6 @@ export default function Home() {
     setAnimals([]);
   };
 
-  // 🔗 URLパラメータ (?org=slug) から団体情報を読み込む（ログイン不要のボランティア用）
-  const loadOrgBySlug = async (slug: string) => {
-    const { data: orgData } = await supabase
-      .from("organizations")
-      .select("id, name, slug")
-      .eq("slug", slug)
-      .maybeSingle();
-
-    if (orgData) {
-      setUserOrgId(orgData.id);
-      setUserOrgName(orgData.name);
-      setUserOrgSlug(orgData.slug);
-    } else {
-      setLoading(false);
-    }
-  };
-
-  const checkUserPermission = async (currentUser: any) => {
-    if (!currentUser) {
-      setUserRole(null);
-      // URLに ?org= が指定されている場合は団体状態を維持する
-      const params = new URLSearchParams(window.location.search);
-      const slugParam = params.get("org");
-      if (slugParam) {
-        await loadOrgBySlug(slugParam);
-      } else {
-        setUserOrgId(null);
-        setUserOrgName(null);
-        setUserOrgSlug(null);
-      }
-      return;
-    }
-
-    const { data: profileData } = await supabase
-      .from("profiles")
-      .select("role, organization_id")
-      .eq("id", currentUser.id)
-      .maybeSingle();
-
-    if (profileData) {
-      setUserRole(profileData.role);
-      setUserOrgId(profileData.organization_id);
-
-      if (profileData.organization_id) {
-        const { data: orgData } = await supabase
-          .from("organizations")
-          .select("name, slug")
-          .eq("id", profileData.organization_id)
-          .maybeSingle();
-        if (orgData) {
-          setUserOrgName(orgData.name);
-          setUserOrgSlug(orgData.slug);
-        }
-      }
-    } else {
-      setUserRole("volunteer");
-    }
-  };
-
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("rescueops_theme");
-    if (savedTheme === "dark") setDarkMode(true);
-
-    const cachedVolunteer = localStorage.getItem("rescueops_last_volunteer");
-    if (cachedVolunteer) setVolunteerName(cachedVolunteer);
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const sessionUser = session?.user ?? null;
-      setUser(sessionUser);
-      checkUserPermission(sessionUser);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const sessionUser = session?.user ?? null;
-      setUser(sessionUser);
-      checkUserPermission(sessionUser);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (isDemoMode) return;
-    if (userOrgId) {
-      fetchInitialData();
-    } else {
-      setLoading(false);
-    }
-  }, [userOrgId, isDemoMode]);
-
   const toggleDarkMode = () => {
     const nextMode = !darkMode;
     setDarkMode(nextMode);
@@ -349,9 +355,8 @@ export default function Home() {
   };
 
   const fetchInitialData = async () => {
-    setLoading(true);
+    if (!userOrgId || isDemoMode) return;
     await Promise.all([fetchLogs(), fetchVolunteers(), fetchAnimals()]);
-    setLoading(false);
   };
 
   const fetchLogs = async () => {
@@ -384,7 +389,6 @@ export default function Home() {
     if (data) setAnimals(data);
   };
 
-  // 🔗 団体専用招待URLを生成・コピー
   const getInviteUrl = () => {
     if (typeof window === "undefined" || !userOrgSlug) return "";
     return `${window.location.origin}/?org=${userOrgSlug}`;
@@ -402,21 +406,26 @@ export default function Home() {
     e.preventDefault();
     if (!newVolName.trim() || !userOrgId) return;
 
+    const roleLabel = newVolType === "donor" ? "寄付者・サポーター" : "ボランティア";
+
     if (isDemoMode) {
       const newVol: Volunteer = {
         id: `demo-v-${Date.now()}`,
         name: newVolName.trim(),
         nickname: newVolNickname.trim() || newVolName.trim(),
         contact: newVolContact.trim() || null,
-        email: null,
-        address: null,
+        email: newVolEmail.trim() || null,
+        address: newVolAddress.trim() || null,
         notes: null,
-        role: "ボランティア",
+        role: roleLabel,
+        member_type: newVolType,
       };
       setVolunteers((prev) => [...prev, newVol]);
       setNewVolName("");
       setNewVolNickname("");
       setNewVolContact("");
+      setNewVolEmail("");
+      setNewVolAddress("");
       return;
     }
 
@@ -426,7 +435,10 @@ export default function Home() {
         name: newVolName.trim(),
         nickname: newVolNickname.trim() || newVolName.trim(),
         contact: newVolContact.trim() || null,
-        role: "ボランティア",
+        email: newVolEmail.trim() || null,
+        address: newVolAddress.trim() || null,
+        role: roleLabel,
+        member_type: newVolType,
       },
     ]);
     if (error) {
@@ -435,6 +447,8 @@ export default function Home() {
       setNewVolName("");
       setNewVolNickname("");
       setNewVolContact("");
+      setNewVolEmail("");
+      setNewVolAddress("");
       fetchVolunteers();
     }
   };
@@ -496,35 +510,44 @@ export default function Home() {
       setEmail("");
       setPassword("");
       setShowLoginModal(false);
+      window.location.reload();
     }
     setLoginLoading(false);
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regOrgName.trim() || !regOrgSlug.trim() || !regAdminName.trim()) {
-      alert("すべての項目を入力してください。");
+    if (!regOrgName.trim() || !regAdminName.trim()) {
+      alert("団体名と管理者名を入力してください。");
       return;
     }
 
     setLoginLoading(true);
-    const cleanSlug = regOrgSlug.trim().toLowerCase().replace(/[^a-z0-9-_]/g, "");
+    const finalSlug = (regOrgSlug.trim() || generateSlugFromOrgName(regOrgName))
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "");
 
-    const { data: existingOrg } = await supabase
+    const { data: existingOrg, error: checkError } = await supabase
       .from("organizations")
       .select("id")
-      .eq("slug", cleanSlug)
+      .eq("slug", finalSlug)
       .maybeSingle();
 
+    if (checkError) {
+      alert("データベース接続エラー (organizations確認): " + checkError.message);
+      setLoginLoading(false);
+      return;
+    }
+
     if (existingOrg) {
-      alert(`⚠️ 団体URL「${cleanSlug}」はすでに使用されています。\n他のURLスラッグに変更してください。`);
+      alert(`⚠️ 専用URL「${finalSlug}」はすでに使用されています。\n別の英数字に変更してください。`);
       setLoginLoading(false);
       return;
     }
 
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
     if (authError || !authData.user) {
-      alert("アカウント作成失敗: " + (authError?.message || "不明なエラー"));
+      alert("アカウント作成失敗 (Auth): " + (authError?.message || "不明なエラー"));
       setLoginLoading(false);
       return;
     }
@@ -533,37 +556,56 @@ export default function Home() {
 
     const { data: orgData, error: orgError } = await supabase
       .from("organizations")
-      .insert([{ name: regOrgName.trim(), slug: cleanSlug }])
+      .insert([{ name: regOrgName.trim(), slug: finalSlug }])
       .select()
       .single();
 
     if (orgError || !orgData) {
-      alert("団体の作成に失敗しました: " + orgError?.message);
+      alert("団体の作成に失敗しました (organizations): " + (orgError?.message || "データ未返却"));
       setLoginLoading(false);
       return;
     }
 
     const newOrgId = orgData.id;
 
-    await supabase.from("profiles").upsert([
-      { id: newUser.id, role: "org_admin", organization_id: newOrgId },
+    const { error: profileError } = await supabase.from("profiles").upsert([
+      {
+        id: newUser.id,
+        email: email.trim(),
+        role: "org_admin",
+        organization_id: newOrgId,
+      },
     ]);
 
-    await supabase.from("volunteers").insert([
+    if (profileError) {
+      alert("管理者プロフィールの保存に失敗しました (profiles): " + profileError.message);
+      setLoginLoading(false);
+      return;
+    }
+
+    const { error: volError } = await supabase.from("volunteers").insert([
       {
         organization_id: newOrgId,
         name: regAdminName.trim(),
         nickname: regAdminName.trim(),
         email: email.trim(),
         role: "団体管理者",
+        member_type: "volunteer",
       },
     ]);
+
+    if (volError) {
+      alert("名簿への初期登録に失敗しました (volunteers): " + volError.message);
+      setLoginLoading(false);
+      return;
+    }
 
     alert("🎉 団体の登録とアカウント作成が完了しました！");
     setEmail("");
     setPassword("");
     setRegOrgName("");
     setRegOrgSlug("");
+    setIsSlugManuallyEdited(false);
     setRegAdminName("");
     setIsSignUpMode(false);
     setShowLoginModal(false);
@@ -576,6 +618,7 @@ export default function Home() {
     setLogs([]);
     setVolunteers([]);
     setAnimals([]);
+    window.location.href = "/";
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -807,7 +850,6 @@ export default function Home() {
 
   const isAdmin = userRole === "admin" || userRole === "org_admin";
 
-  // 🖨️ 領収書添付台紙の印刷モード専用レイアウト
   if (isPrintReceiptSheet) {
     const approvedExpenses = reportExpenses.filter((l) => l.status === "approved");
     return (
@@ -975,7 +1017,7 @@ export default function Home() {
                 }`}
               >
                 <Settings className="w-4 h-4" />
-                団体管理・招待リンク
+                名簿・団体管理
               </button>
             )}
 
@@ -1055,14 +1097,13 @@ export default function Home() {
           </div>
         </header>
 
-        {/* ⚙️ 管理者専用パネル（招待URL・QRコード ＋ 名簿 ＋ 保護動物） */}
+        {/* ⚙️ 管理者専用パネル */}
         {showSettings && isAdmin && (
           <section
             className={`rounded-2xl p-5 border shadow-sm space-y-6 transition-all print:hidden ${
               darkMode ? "bg-slate-900/90 border-indigo-500/30" : "bg-indigo-50/50 border-indigo-200"
             }`}
           >
-            {/* 0. ボランティア招待専用リンク＆QRコード */}
             {userOrgSlug && (
               <div className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/80 border-indigo-500/30" : "bg-white border-indigo-200"}`}>
                 <div className="flex items-center justify-between">
@@ -1072,7 +1113,7 @@ export default function Home() {
                   </h3>
                 </div>
                 <p className="text-xs text-slate-400">
-                  このURLやQRコードをボランティアメンバーに共有すると、アカウント登録やログインなしで自団体の申請画面に直接アクセスできます（他団体のデータは見えません）。
+                  このURLやQRコードをボランティアメンバーに共有すると、アカウント登録やログインなしで自団体の申請画面に直接アクセスできます。
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
@@ -1095,7 +1136,6 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* QRコード自動生成表示 */}
                   <div className="p-2 bg-white rounded-xl border border-slate-200 shrink-0 text-center">
                     <img
                       src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getInviteUrl())}`}
@@ -1110,76 +1150,162 @@ export default function Home() {
               </div>
             )}
 
-            {/* 1. ボランティア名簿管理 */}
+            {/* 👥 ボランティア・寄付者名簿の管理 */}
             <div className="space-y-3">
-              <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-500">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                ボランティア名簿の管理 ({volunteers.length}名)
-              </h3>
+              <div>
+                <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-500">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  ボランティア・寄付者名簿の管理 ({volunteers.length}名)
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  メンバーや支援者・寄付者の連絡先やメールアドレスを登録しておくと、今後のサンクスメール送信や報告に活用できます。
+                </p>
+              </div>
 
               <div className="overflow-x-auto rounded-xl border border-slate-700/40">
                 <table className="w-full text-left text-xs">
                   <thead className={darkMode ? "bg-slate-800 text-slate-300" : "bg-indigo-100 text-indigo-900"}>
                     <tr>
-                      <th className="p-2.5">氏名</th>
-                      <th className="p-2.5">愛称</th>
-                      <th className="p-2.5">連絡先</th>
+                      <th className="p-2.5">区分</th>
+                      <th className="p-2.5">氏名 / 愛称</th>
+                      <th className="p-2.5">メール / 電話</th>
+                      <th className="p-2.5">住所</th>
                       <th className="p-2.5 text-center">操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/30">
-                    {volunteers.map((vol) => (
-                      <tr key={vol.id} className={darkMode ? "hover:bg-slate-800/50" : "hover:bg-white"}>
-                        <td className="p-2.5 font-bold">{vol.name}</td>
-                        <td className="p-2.5 text-indigo-400 font-semibold">{vol.nickname || "-"}</td>
-                        <td className="p-2.5 opacity-80">{vol.contact || "-"}</td>
-                        <td className="p-2.5 text-center">
-                          <button
-                            onClick={() => handleDeleteVolunteer(vol.id, vol.name)}
-                            className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-[10px] font-bold"
-                          >
-                            削除
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {volunteers.map((vol) => {
+                      const isDonor = vol.member_type === "donor" || vol.role?.includes("寄付");
+                      return (
+                        <tr key={vol.id} className={darkMode ? "hover:bg-slate-800/50" : "hover:bg-white"}>
+                          <td className="p-2.5">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                isDonor
+                                  ? "bg-amber-500/15 text-amber-500"
+                                  : "bg-indigo-500/15 text-indigo-400"
+                              }`}
+                            >
+                              {isDonor ? "🎁 寄付者" : "🐾 スタッフ"}
+                            </span>
+                          </td>
+                          <td className="p-2.5">
+                            <div className="font-bold">{vol.name}</div>
+                            {vol.nickname && <div className="text-[11px] text-indigo-400">表示名: {vol.nickname}</div>}
+                          </td>
+                          <td className="p-2.5 space-y-0.5">
+                            {vol.email && (
+                              <div className="flex items-center gap-1 text-[11px]">
+                                <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span>{vol.email}</span>
+                              </div>
+                            )}
+                            {vol.contact && <div className="text-[11px] opacity-80">📞 {vol.contact}</div>}
+                            {!vol.email && !vol.contact && <span className="opacity-50">-</span>}
+                          </td>
+                          <td className="p-2.5 text-[11px] opacity-80">
+                            {vol.address ? (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                {vol.address}
+                              </span>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <button
+                              onClick={() => handleDeleteVolunteer(vol.id, vol.name)}
+                              className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-[10px] font-bold"
+                            >
+                              削除
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
-              <form onSubmit={handleAddVolunteer} className={`p-3.5 rounded-xl border space-y-2.5 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
-                <p className="text-xs font-bold text-indigo-400">＋ ボランティアを名簿に追加</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input
-                    type="text"
-                    required
-                    placeholder="氏名（必須）"
-                    value={newVolName}
-                    onChange={(e) => setNewVolName(e.target.value)}
-                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                  />
-                  <input
-                    type="text"
-                    placeholder="愛称（申請時に表示）"
-                    value={newVolNickname}
-                    onChange={(e) => setNewVolNickname(e.target.value)}
-                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                  />
-                  <input
-                    type="text"
-                    placeholder="連絡先（任意）"
-                    value={newVolContact}
-                    onChange={(e) => setNewVolContact(e.target.value)}
-                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                  />
+              <form onSubmit={handleAddVolunteer} className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
+                <p className="text-xs font-bold text-indigo-400">＋ 名簿に新しく登録する（氏名以外はすべて任意）</p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">区分</label>
+                    <select
+                      value={newVolType}
+                      onChange={(e) => setNewVolType(e.target.value as "volunteer" | "donor")}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    >
+                      <option value="volunteer">🐾 ボランティア・スタッフ</option>
+                      <option value="donor">🎁 寄付者・サポーター</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">氏名（必須）</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="例: 山田 太郎"
+                      value={newVolName}
+                      onChange={(e) => setNewVolName(e.target.value)}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">愛称・表示名（任意）</label>
+                    <input
+                      type="text"
+                      placeholder="例: やまだ / やまだ様"
+                      value={newVolNickname}
+                      onChange={(e) => setNewVolNickname(e.target.value)}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                  </div>
                 </div>
-                <button type="submit" className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-sm">
-                  名簿に追加登録する
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">メールアドレス（サンクスメール用・任意）</label>
+                    <input
+                      type="email"
+                      placeholder="例: donor@example.com"
+                      value={newVolEmail}
+                      onChange={(e) => setNewVolEmail(e.target.value)}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">電話番号・LINE等（任意）</label>
+                    <input
+                      type="text"
+                      placeholder="例: 090-1234-5678"
+                      value={newVolContact}
+                      onChange={(e) => setNewVolContact(e.target.value)}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">住所（お礼状送付等・任意）</label>
+                    <input
+                      type="text"
+                      placeholder="例: 宮城県仙台市..."
+                      value={newVolAddress}
+                      onChange={(e) => setNewVolAddress(e.target.value)}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-sm">
+                  名簿に登録する
                 </button>
               </form>
             </div>
 
-            {/* 2. 保護動物（個体）の管理 */}
+            {/* 🐾 保護動物管理 */}
             <div className="space-y-3 pt-2 border-t border-slate-700/30">
               <h3 className="text-sm font-bold flex items-center gap-2 text-amber-500">
                 <Heart className="w-4 h-4" />
@@ -1230,7 +1356,7 @@ export default function Home() {
           </section>
         )}
 
-        {/* 📝 新規申請フォーム（団体にアクセス中ならログイン不要で利用可能） */}
+        {/* 📝 新規申請フォーム */}
         {userOrgId && (
           <section className={`rounded-2xl p-6 border shadow-sm print:hidden ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
             <h2 className="text-base font-bold mb-4 flex items-center gap-2">
@@ -1268,7 +1394,9 @@ export default function Home() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold mb-1">申請者（愛称を選択）</label>
+                  <label className="block text-xs font-semibold mb-1">
+                    {type === "expense" ? "申請者（ボランティア）" : "提供者・担当者"}
+                  </label>
                   <select
                     value={volunteerName}
                     onChange={(e) => setVolunteerName(e.target.value)}
@@ -1277,6 +1405,7 @@ export default function Home() {
                     <option value="匿名">匿名</option>
                     {volunteers.map((v) => (
                       <option key={v.id} value={v.nickname || v.name}>
+                        {v.member_type === "donor" ? "🎁 " : ""}
                         {v.nickname || v.name} ({v.name})
                       </option>
                     ))}
@@ -1656,31 +1785,39 @@ export default function Home() {
 
               {isSignUpMode ? (
                 <form onSubmit={handleSignUp} className="space-y-3">
-                  <p className="text-[11px] text-slate-400">団体を新しく登録し、あなたの管理アカウントを作成します。</p>
+                  <p className="text-[11px] text-slate-400">団体名を入力すると、専用アクセスURLが自動で作成されます。</p>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">団体名</label>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">団体名（必須）</label>
                     <input
                       type="text"
                       required
-                      placeholder="例: 仙台猫保護ボランティア"
+                      placeholder="例: 仙台保護猫の会"
                       value={regOrgName}
-                      onChange={(e) => setRegOrgName(e.target.value)}
+                      onChange={(e) => handleOrgNameChange(e.target.value)}
                       className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">団体URLスラッグ（半角英数字）</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="例: sendai-cats"
-                      value={regOrgSlug}
-                      onChange={(e) => setRegOrgSlug(e.target.value)}
-                      className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                    />
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                      専用URLの末尾（自動作成・半角英数字で変更も可）
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] text-slate-400 font-mono">?org=</span>
+                      <input
+                        type="text"
+                        required
+                        placeholder="自動入力されます"
+                        value={regOrgSlug}
+                        onChange={(e) => {
+                          setIsSlugManuallyEdited(true);
+                          setRegOrgSlug(e.target.value);
+                        }}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-mono ${darkMode ? "bg-slate-800 border-slate-700 text-indigo-300" : "bg-slate-50 border-slate-200 text-indigo-700"}`}
+                      />
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">あなたの氏名（管理者名）</label>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">あなたの氏名（管理者名・必須）</label>
                     <input
                       type="text"
                       required
@@ -1691,7 +1828,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">メールアドレス</label>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">メールアドレス（必須）</label>
                     <input
                       type="email"
                       required
@@ -1702,7 +1839,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">パスワード</label>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">パスワード（6文字以上）</label>
                     <input
                       type="password"
                       required
