@@ -54,7 +54,7 @@ type ActivityLog = {
   status: string;
   volunteer_name: string | null;
   category: string | null;
-  animal_id: string | null;
+  cat_id: string | null;
 };
 
 type Volunteer = {
@@ -136,7 +136,7 @@ const getInitialDemoLogs = (): ActivityLog[] => {
       status: "approved",
       volunteer_name: "すずき",
       category: "医療費",
-      animal_id: "demo-a1",
+      cat_id: "demo-a1",
     },
     {
       id: "demo-l2",
@@ -149,7 +149,7 @@ const getInitialDemoLogs = (): ActivityLog[] => {
       status: "approved",
       volunteer_name: "はなこ",
       category: "フード",
-      animal_id: "demo-a2",
+      cat_id: "demo-a2",
     },
     {
       id: "demo-l3",
@@ -162,7 +162,7 @@ const getInitialDemoLogs = (): ActivityLog[] => {
       status: "pending",
       volunteer_name: "すずき",
       category: "消耗品",
-      animal_id: null,
+      cat_id: null,
     },
     {
       id: "demo-l5",
@@ -175,7 +175,7 @@ const getInitialDemoLogs = (): ActivityLog[] => {
       status: "approved",
       volunteer_name: "やまだ様",
       category: "フード",
-      animal_id: null,
+      cat_id: null,
     },
   ];
 };
@@ -442,7 +442,7 @@ export default function Home() {
   const fetchAnimals = async () => {
     if (!userOrgId || isDemoMode) return;
     const { data } = await supabase
-      .from("animals")
+      .from("cats")
       .select("*")
       .eq("organization_id", userOrgId)
       .order("name");
@@ -513,7 +513,7 @@ export default function Home() {
     setTitle(last.title);
     setAmount(last.amount != null ? String(last.amount) : "");
     setDetails(last.details || "");
-    setAnimalId(last.animal_id || "");
+    setAnimalId(last.cat_id || "");
   };
 
   const getInviteUrl = () => {
@@ -652,7 +652,7 @@ export default function Home() {
       return;
     }
 
-    const { error } = await supabase.from("animals").insert([
+    const { error } = await supabase.from("cats").insert([
       {
         organization_id: userOrgId,
         name: newAnimalName.trim(),
@@ -688,7 +688,7 @@ export default function Home() {
       setAnimals((prev) => prev.filter((a) => a.id !== id));
       return;
     }
-    await supabase.from("animals").delete().eq("id", id);
+    await supabase.from("cats").delete().eq("id", id);
     fetchAnimals();
   };
 
@@ -862,7 +862,7 @@ export default function Home() {
         type,
         volunteer_name: finalVolunteerName,
         category,
-        animal_id: selectedAnimalId,
+        cat_id: selectedAnimalId,
         title: title.trim(),
         amount: newAmount,
         details: details.trim() || null,
@@ -888,7 +888,7 @@ export default function Home() {
         type,
         volunteer_name: finalVolunteerName,
         category,
-        animal_id: selectedAnimalId,
+        cat_id: selectedAnimalId,
         title,
         amount: newAmount,
         details,
@@ -962,7 +962,7 @@ export default function Home() {
       "承認ステータス",
     ];
     const rows = targetData.map((log) => {
-      const animalObj = animals.find((a) => a.id === log.animal_id);
+      const animalObj = animals.find((a) => a.id === log.cat_id);
       return [
         log.id,
         new Date(log.created_at).toLocaleDateString("ja-JP"),
@@ -1029,7 +1029,7 @@ export default function Home() {
   });
 
   const animalStats = animals.map((animal) => {
-    const items = reportExpenses.filter((l) => l.animal_id === animal.id);
+    const items = reportExpenses.filter((l) => l.cat_id === animal.id);
     const medical = items
       .filter((l) => l.category === "医療費")
       .reduce((s, l) => s + (l.amount || 0), 0);
@@ -1046,7 +1046,7 @@ export default function Home() {
   });
 
   const unassignedExpenseTotal = reportExpenses
-    .filter((l) => !l.animal_id)
+    .filter((l) => !l.cat_id)
     .reduce((s, l) => s + (l.amount || 0), 0);
 
   const isAdmin = userRole === "admin" || userRole === "org_admin";
@@ -1107,7 +1107,7 @@ className="px-4 py-2 bg-slate-300 text-slate-800 rounded-xl text-xs font-bold ho
 </thead>
 <tbody>
 {approvedExpenses.map((exp) => {
-const anim = animals.find((a) => a.id === exp.animal_id);
+const anim = animals.find((a) => a.id === exp.cat_id);
 return (
 <tr key={exp.id}>
 <td className="border border-slate-400 p-2">{new Date(exp.created_at).toLocaleDateString("ja-JP")}</td>
@@ -2173,7 +2173,7 @@ className="w-24 h-24 mx-auto"
             ) : (
               <div className="space-y-3">
                 {filteredLogs.map((log) => {
-                  const animalObj = animals.find((a) => a.id === log.animal_id);
+                  const animalObj = animals.find((a) => a.id === log.cat_id);
                   return (
                     <div
                       key={log.id}
