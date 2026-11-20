@@ -2014,7 +2014,7 @@ className="w-24 h-24 mx-auto"
                   <button
                     type="button"
                     onClick={copyLastLog}
-                    className={`px-2.5 py-1.5 rounded-full border text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                    className={`ml-3 px-2.5 py-1.5 rounded-full border text-[11px] font-semibold flex items-center gap-1 transition-all ${
                       darkMode
                         ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-indigo-500"
                         : "bg-slate-50 border-slate-200 text-slate-600 hover:border-indigo-400"
