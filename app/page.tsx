@@ -331,13 +331,41 @@ export default function Home() {
 
         if (isMounted && profileData) {
           setUserRole(profileData.role);
-          setUserOrgId(profileData.organization_id);
+          let resolvedOrgId = profileData.organization_id as string | null;
 
-          if (profileData.organization_id) {
+          if (!resolvedOrgId) {
+            // フォールバック: profiles に団体が紐づいていない場合は、
+            // 自分がオーナーの団体（owner_user_id）から解決する。
+            // Nekonote / RescuCat で団体を作った管理者が RescueOps でも
+            // そのまま使えるようにするため（Phase B・共通設計の課題対応）。
+            const { data: ownedOrg } = await supabase
+              .from("organizations")
+              .select("id, name, slug")
+              .eq("owner_user_id", sessionUser.id)
+              .maybeSingle();
+            if (ownedOrg) {
+              resolvedOrgId = ownedOrg.id;
+              if (isMounted) {
+                setUserOrgName(ownedOrg.name);
+                setUserOrgSlug(ownedOrg.slug);
+              }
+              // 次回から profiles 側で解決できるよう自己修復しておく
+              // （失敗してもフォールバックで動き続けるので、結果は見ない）
+              await supabase
+                .from("profiles")
+                .update({ organization_id: ownedOrg.id })
+                .eq("id", sessionUser.id);
+            }
+          }
+
+          if (!isMounted) return;
+          setUserOrgId(resolvedOrgId);
+
+          if (resolvedOrgId) {
             const { data: orgData } = await supabase
               .from("organizations")
               .select("id, name, slug")
-              .eq("id", profileData.organization_id)
+              .eq("id", resolvedOrgId)
               .maybeSingle();
             if (isMounted && orgData) {
               setUserOrgName(orgData.name);
