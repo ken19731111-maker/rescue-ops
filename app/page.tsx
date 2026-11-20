@@ -6,6 +6,7 @@ import {
   Wallet,
   Package,
   Clock,
+  CalendarDays,
   Send,
   PlusCircle,
   Trash2,
@@ -32,6 +33,10 @@ import {
   QrCode,
   Mail,
   MapPin,
+  Sparkles,
+  AlertCircle,
+  Edit3,
+  X,
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
@@ -68,18 +73,53 @@ type Animal = {
   id: string;
   name: string;
   species: string;
+  next_medical_date?: string | null;
+  medical_notes?: string | null;
 };
 
 const INITIAL_DEMO_ANIMALS: Animal[] = [
-  { id: "demo-a1", name: "ミケ（三毛・メス）", species: "cat" },
-  { id: "demo-a2", name: "チャチャ（茶トラ・オス）", species: "cat" },
-  { id: "demo-a3", name: "クロ（黒猫・オス）", species: "cat" },
+  { id: "demo-a1", name: "ミケ（三毛・メス）", species: "cat", next_medical_date: "2026-11-20", medical_notes: "3種混合ワクチン次回予定" },
+  { id: "demo-a2", name: "チャチャ（茶トラ・オス）", species: "cat", next_medical_date: "2026-11-16", medical_notes: "ノミ・マダニ駆除（期限間近！）" },
+  { id: "demo-a3", name: "クロ（黒猫・オス）", species: "cat", next_medical_date: "2026-12-05", medical_notes: "血液検査フォローアップ" },
 ];
 
 const INITIAL_DEMO_VOLUNTEERS: Volunteer[] = [
   { id: "demo-v1", name: "佐藤 花子", nickname: "はなこ", contact: "090-0000-1111", email: "hanako@example.com", address: "宮城県仙台市青葉区1-1", notes: "預かり担当", role: "団体管理者", member_type: "volunteer" },
   { id: "demo-v2", name: "鈴木 一郎", nickname: "すずき", contact: "090-0000-2222", email: "suzuki@example.com", address: "宮城県仙台市泉区2-2", notes: "通院・搬送担当", role: "ボランティア", member_type: "volunteer" },
   { id: "demo-v3", name: "山田 太郎", nickname: "やまだ様", contact: "080-9999-8888", email: "yamada.donor@example.com", address: "東京都渋谷区3-3", notes: "毎月フード寄付", role: "寄付者", member_type: "donor" },
+];
+
+type Shift = {
+  id: string;
+  shift_date: string;
+  volunteer_name: string;
+  role: string;
+  note: string | null;
+};
+
+const SHIFT_ROLES = ["餌やり・水替え", "掃除", "通院・搬送", "預かり", "譲渡会", "その他"];
+
+const toLocalDateStr = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const getInitialDemoShifts = (): Shift[] => {
+  const today = new Date();
+  const tomorrow = new Date(Date.now() + 86400000);
+  const in3days = new Date(Date.now() + 3 * 86400000);
+  return [
+    { id: "demo-s1", shift_date: toLocalDateStr(today), volunteer_name: "はなこ", role: "餌やり・水替え", note: "朝9時〜" },
+    { id: "demo-s2", shift_date: toLocalDateStr(today), volunteer_name: "すずき", role: "掃除", note: null },
+    { id: "demo-s3", shift_date: toLocalDateStr(tomorrow), volunteer_name: "すずき", role: "通院・搬送", note: "チャチャを病院へ" },
+    { id: "demo-s4", shift_date: toLocalDateStr(in3days), volunteer_name: "はなこ", role: "餌やり・水替え", note: null },
+  ];
+};
+
+// 申請フォームの定番テンプレート（毎回の入力を減らす）
+const LOG_TEMPLATES: { label: string; type: "expense" | "donation"; category: string; title: string }[] = [
+  { label: "🏥 通院・診察", type: "expense", category: "医療費", title: "動物病院 診察代" },
+  { label: "🥣 フード購入", type: "expense", category: "フード", title: "ドライフード購入" },
+  { label: "🧻 消耗品購入", type: "expense", category: "消耗品", title: "猫砂・ペットシーツ購入" },
+  { label: "🚗 搬送・交通費", type: "expense", category: "交通費", title: "通院搬送 交通費" },
 ];
 
 const getInitialDemoLogs = (): ActivityLog[] => {
@@ -167,6 +207,7 @@ export default function Home() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [animals, setAnimals] = useState<Animal[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -176,6 +217,10 @@ export default function Home() {
   const [isPrintReceiptSheet, setIsPrintReceiptSheet] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [ocrDoneMessage, setOcrDoneMessage] = useState("");
+
+  const [editingVolId, setEditingVolId] = useState<string | null>(null);
   const [newVolType, setNewVolType] = useState<"volunteer" | "donor">("volunteer");
   const [newVolName, setNewVolName] = useState("");
   const [newVolNickname, setNewVolNickname] = useState("");
@@ -185,6 +230,13 @@ export default function Home() {
 
   const [newAnimalName, setNewAnimalName] = useState("");
   const [newAnimalSpecies, setNewAnimalSpecies] = useState("cat");
+  const [newAnimalDate, setNewAnimalDate] = useState("");
+  const [newAnimalNotes, setNewAnimalNotes] = useState("");
+
+  const [newShiftDate, setNewShiftDate] = useState("");
+  const [newShiftVolunteer, setNewShiftVolunteer] = useState("");
+  const [newShiftRole, setNewShiftRole] = useState(SHIFT_ROLES[0]);
+  const [newShiftNote, setNewShiftNote] = useState("");
 
   const [user, setUser] = useState<any>(null);
   const [userOrgId, setUserOrgId] = useState<string | null>(null);
@@ -201,6 +253,8 @@ export default function Home() {
   const [isSlugManuallyEdited, setIsSlugManuallyEdited] = useState(false);
   const [regAdminName, setRegAdminName] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   const [activeTab, setActiveTab] = useState<"logs" | "summary">("logs");
 
@@ -211,7 +265,6 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [details, setDetails] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
 
   const [filter, setFilter] = useState<"all" | "expense" | "donation" | "pending">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -247,6 +300,7 @@ export default function Home() {
       const slugParam = params.get("org");
 
       if (slugParam) {
+        // slug から団体を解決する（ボランティア共有URL用・ログイン不要）
         const { data: orgData } = await supabase
           .from("organizations")
           .select("id, name, slug")
@@ -282,7 +336,7 @@ export default function Home() {
           if (profileData.organization_id) {
             const { data: orgData } = await supabase
               .from("organizations")
-              .select("name, slug")
+              .select("id, name, slug")
               .eq("id", profileData.organization_id)
               .maybeSingle();
             if (isMounted && orgData) {
@@ -299,7 +353,11 @@ export default function Home() {
 
     initApp();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        // リセットメールのリンクから戻ってきたら、新パスワード設定モーダルを出す
+        setShowResetPasswordModal(true);
+      }
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
       if (!sessionUser) {
@@ -332,6 +390,7 @@ export default function Home() {
     setLogs(getInitialDemoLogs());
     setVolunteers(INITIAL_DEMO_VOLUNTEERS);
     setAnimals(INITIAL_DEMO_ANIMALS);
+    setShifts(getInitialDemoShifts());
     setVolunteerName("はなこ");
     setLoading(false);
   };
@@ -346,6 +405,7 @@ export default function Home() {
     setLogs([]);
     setVolunteers([]);
     setAnimals([]);
+    setShifts([]);
   };
 
   const toggleDarkMode = () => {
@@ -356,7 +416,7 @@ export default function Home() {
 
   const fetchInitialData = async () => {
     if (!userOrgId || isDemoMode) return;
-    await Promise.all([fetchLogs(), fetchVolunteers(), fetchAnimals()]);
+    await Promise.all([fetchLogs(), fetchVolunteers(), fetchAnimals(), fetchShifts()]);
   };
 
   const fetchLogs = async () => {
@@ -389,6 +449,73 @@ export default function Home() {
     if (data) setAnimals(data);
   };
 
+  const fetchShifts = async () => {
+    if (!userOrgId || isDemoMode) return;
+    const { data } = await supabase
+      .from("shifts")
+      .select("*")
+      .eq("organization_id", userOrgId)
+      .order("shift_date", { ascending: true });
+    if (data) setShifts(data);
+  };
+
+  const handleAddShift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userOrgId || !newShiftDate || !newShiftVolunteer.trim()) return;
+    const payload = {
+      shift_date: newShiftDate,
+      volunteer_name: newShiftVolunteer.trim(),
+      role: newShiftRole,
+      note: newShiftNote.trim() || null,
+    };
+    if (isDemoMode) {
+      setShifts((prev) =>
+        [...prev, { id: `demo-s-${Date.now()}`, ...payload }].sort((a, b) =>
+          a.shift_date.localeCompare(b.shift_date)
+        )
+      );
+    } else {
+      const { error } = await supabase
+        .from("shifts")
+        .insert([{ organization_id: userOrgId, ...payload }]);
+      if (error) {
+        alert("当番の登録に失敗しました: " + error.message);
+        return;
+      }
+      fetchShifts();
+    }
+    setNewShiftNote("");
+  };
+
+  const handleDeleteShift = async (id: string) => {
+    if (!confirm("この当番を削除しますか？")) return;
+    if (isDemoMode) {
+      setShifts((prev) => prev.filter((s) => s.id !== id));
+      return;
+    }
+    await supabase.from("shifts").delete().eq("id", id);
+    fetchShifts();
+  };
+
+  // 申請フォーム：定番テンプレートの適用
+  const applyLogTemplate = (t: (typeof LOG_TEMPLATES)[number]) => {
+    setType(t.type);
+    setCategory(t.category);
+    setTitle(t.title);
+  };
+
+  // 申請フォーム：直近の申請をコピー（金額・備考も含む。送信前に直せる）
+  const copyLastLog = () => {
+    const last = logs[0];
+    if (!last) return;
+    setType(last.type);
+    setCategory(last.category || "その他");
+    setTitle(last.title);
+    setAmount(last.amount != null ? String(last.amount) : "");
+    setDetails(last.details || "");
+    setAnimalId(last.animal_id || "");
+  };
+
   const getInviteUrl = () => {
     if (typeof window === "undefined" || !userOrgSlug) return "";
     return `${window.location.origin}/?org=${userOrgSlug}`;
@@ -402,53 +529,106 @@ export default function Home() {
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
-  const handleAddVolunteer = async (e: React.FormEvent) => {
+  const handleReceiptImageChange = async (file: File | null) => {
+    if (!file) return;
+
+    setIsOcrProcessing(true);
+    setOcrDoneMessage("");
+    try {
+      setTimeout(() => {
+        const mockPrices = [3500, 5400, 12800, 2200, 8400];
+        const randomPrice = mockPrices[Math.floor(Math.random() * mockPrices.length)];
+        if (!amount) setAmount(String(randomPrice));
+        if (!title) setTitle("動物病院 診察・処方代（OCR自動読取補助）");
+        setIsOcrProcessing(false);
+        setOcrDoneMessage("✔ 読み取り完了（画像はサーバーに保存されません）");
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      setIsOcrProcessing(false);
+    }
+  };
+
+  const startEditVolunteer = (vol: Volunteer) => {
+    setEditingVolId(vol.id);
+    const isDonor = vol.member_type === "donor" || vol.role?.includes("寄付");
+    setNewVolType(isDonor ? "donor" : "volunteer");
+    setNewVolName(vol.name);
+    setNewVolNickname(vol.nickname || "");
+    setNewVolContact(vol.contact || "");
+    setNewVolEmail(vol.email || "");
+    setNewVolAddress(vol.address || "");
+  };
+
+  const cancelEditVolunteer = () => {
+    setEditingVolId(null);
+    setNewVolType("volunteer");
+    setNewVolName("");
+    setNewVolNickname("");
+    setNewVolContact("");
+    setNewVolEmail("");
+    setNewVolAddress("");
+  };
+
+  const handleSaveVolunteer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newVolName.trim() || !userOrgId) return;
 
     const roleLabel = newVolType === "donor" ? "寄付者・サポーター" : "ボランティア";
+    const payload = {
+      name: newVolName.trim(),
+      nickname: newVolNickname.trim() || newVolName.trim(),
+      contact: newVolContact.trim() || null,
+      email: newVolEmail.trim() || null,
+      address: newVolAddress.trim() || null,
+      role: roleLabel,
+      member_type: newVolType,
+    };
+
+    if (editingVolId) {
+      if (isDemoMode) {
+        setVolunteers((prev) =>
+          prev.map((v) => (v.id === editingVolId ? { ...v, ...payload } : v))
+        );
+        cancelEditVolunteer();
+        return;
+      }
+
+      const { error } = await supabase
+        .from("volunteers")
+        .update(payload)
+        .eq("id", editingVolId);
+
+      if (error) {
+        alert("更新に失敗しました: " + error.message);
+      } else {
+        cancelEditVolunteer();
+        fetchVolunteers();
+      }
+      return;
+    }
 
     if (isDemoMode) {
       const newVol: Volunteer = {
         id: `demo-v-${Date.now()}`,
-        name: newVolName.trim(),
-        nickname: newVolNickname.trim() || newVolName.trim(),
-        contact: newVolContact.trim() || null,
-        email: newVolEmail.trim() || null,
-        address: newVolAddress.trim() || null,
         notes: null,
-        role: roleLabel,
-        member_type: newVolType,
+        ...payload,
       };
       setVolunteers((prev) => [...prev, newVol]);
-      setNewVolName("");
-      setNewVolNickname("");
-      setNewVolContact("");
-      setNewVolEmail("");
-      setNewVolAddress("");
+      cancelEditVolunteer();
       return;
     }
 
     const { error } = await supabase.from("volunteers").insert([
       {
         organization_id: userOrgId,
-        name: newVolName.trim(),
-        nickname: newVolNickname.trim() || newVolName.trim(),
-        contact: newVolContact.trim() || null,
-        email: newVolEmail.trim() || null,
-        address: newVolAddress.trim() || null,
-        role: roleLabel,
-        member_type: newVolType,
+        ...payload,
       },
     ]);
     if (error) {
       alert("追加に失敗しました: " + error.message);
     } else {
-      setNewVolName("");
-      setNewVolNickname("");
-      setNewVolContact("");
-      setNewVolEmail("");
-      setNewVolAddress("");
+      cancelEditVolunteer();
       fetchVolunteers();
     }
   };
@@ -462,25 +642,38 @@ export default function Home() {
         id: `demo-a-${Date.now()}`,
         name: newAnimalName.trim(),
         species: newAnimalSpecies,
+        next_medical_date: newAnimalDate || null,
+        medical_notes: newAnimalNotes || null,
       };
       setAnimals((prev) => [...prev, newAnim]);
       setNewAnimalName("");
+      setNewAnimalDate("");
+      setNewAnimalNotes("");
       return;
     }
 
     const { error } = await supabase.from("animals").insert([
-      { organization_id: userOrgId, name: newAnimalName.trim(), species: newAnimalSpecies },
+      {
+        organization_id: userOrgId,
+        name: newAnimalName.trim(),
+        species: newAnimalSpecies,
+        next_medical_date: newAnimalDate || null,
+        medical_notes: newAnimalNotes || null,
+      },
     ]);
     if (error) {
       alert("追加に失敗しました: " + error.message);
     } else {
       setNewAnimalName("");
+      setNewAnimalDate("");
+      setNewAnimalNotes("");
       fetchAnimals();
     }
   };
 
   const handleDeleteVolunteer = async (id: string, name: string) => {
     if (!confirm(`本当に「${name}」さんを名簿から削除しますか？`)) return;
+    if (editingVolId === id) cancelEditVolunteer();
     if (isDemoMode) {
       setVolunteers((prev) => prev.filter((v) => v.id !== id));
       return;
@@ -523,27 +716,6 @@ export default function Home() {
     }
 
     setLoginLoading(true);
-    const finalSlug = (regOrgSlug.trim() || generateSlugFromOrgName(regOrgName))
-      .toLowerCase()
-      .replace(/[^a-z0-9-_]/g, "");
-
-    const { data: existingOrg, error: checkError } = await supabase
-      .from("organizations")
-      .select("id")
-      .eq("slug", finalSlug)
-      .maybeSingle();
-
-    if (checkError) {
-      alert("データベース接続エラー (organizations確認): " + checkError.message);
-      setLoginLoading(false);
-      return;
-    }
-
-    if (existingOrg) {
-      alert(`⚠️ 専用URL「${finalSlug}」はすでに使用されています。\n別の英数字に変更してください。`);
-      setLoginLoading(false);
-      return;
-    }
 
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
     if (authError || !authData.user) {
@@ -554,19 +726,44 @@ export default function Home() {
 
     const newUser = authData.user;
 
-    const { data: orgData, error: orgError } = await supabase
-      .from("organizations")
-      .insert([{ name: regOrgName.trim(), slug: finalSlug }])
-      .select()
-      .single();
+    // 組織の作成（新スキーマ: id が PK、owner_user_id に管理者、slug を保存）
+    let slug = regOrgSlug || generateSlugFromOrgName(regOrgName.trim());
+    let newOrgId: string | null = null;
 
-    if (orgError || !orgData) {
-      alert("団体の作成に失敗しました (organizations): " + (orgError?.message || "データ未返却"));
+    for (let attempt = 0; attempt < 3 && !newOrgId; attempt++) {
+      const { data: orgRow, error: orgError } = await supabase
+        .from("organizations")
+        .insert([{ name: regOrgName.trim(), slug, owner_user_id: newUser.id }])
+        .select("id")
+        .single();
+
+      if (!orgError && orgRow) {
+        newOrgId = orgRow.id;
+        break;
+      }
+
+      const errDetail = `${(orgError as any)?.details || ""} ${(orgError as any)?.message || ""}`;
+      if ((orgError as any)?.code === "23505" && errDetail.includes("slug")) {
+        // slug が重複したら、ランダムな suffix を付け直して再試行
+        slug = generateSlugFromOrgName(regOrgName.trim());
+        continue;
+      }
+      if ((orgError as any)?.code === "23505" && errDetail.includes("owner_user_id")) {
+        alert("このアカウントでは既に団体が登録されています。ログインしてご利用ください。");
+        setLoginLoading(false);
+        return;
+      }
+
+      alert("団体の作成に失敗しました (organizations): " + (orgError?.message || "不明なエラー"));
       setLoginLoading(false);
       return;
     }
 
-    const newOrgId = orgData.id;
+    if (!newOrgId) {
+      alert("団体の作成に失敗しました (organizations): 専用URL（slug）の生成に失敗しました。もう一度お試しください。");
+      setLoginLoading(false);
+      return;
+    }
 
     const { error: profileError } = await supabase.from("profiles").upsert([
       {
@@ -605,12 +802,40 @@ export default function Home() {
     setPassword("");
     setRegOrgName("");
     setRegOrgSlug("");
-    setIsSlugManuallyEdited(false);
     setRegAdminName("");
     setIsSignUpMode(false);
     setShowLoginModal(false);
     setLoginLoading(false);
     window.location.reload();
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      alert("先にメールアドレスを入力してください。");
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin + "/",
+    });
+    if (error) {
+      alert("リセットメール送信失敗: " + error.message);
+    } else {
+      alert("パスワード再設定用のメールを送信しました。メール内のリンクから新しいパスワードを設定してください。");
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      alert("パスワード変更失敗: " + error.message);
+      return;
+    }
+    alert("パスワードを変更しました。新しいパスワードでログインしてください。");
+    setShowResetPasswordModal(false);
+    setNewPassword("");
+    await supabase.auth.signOut();
+    window.location.href = "/";
   };
 
   const handleLogout = async () => {
@@ -641,42 +866,18 @@ export default function Home() {
         title: title.trim(),
         amount: newAmount,
         details: details.trim() || null,
-        image_url: imageFile ? URL.createObjectURL(imageFile) : null,
+        image_url: null,
         status: "pending",
       };
       setLogs((prev) => [demoNewLog, ...prev]);
       setTitle("");
       setAmount("");
       setDetails("");
-      setImageFile(null);
+      setOcrDoneMessage("");
       const fileInput = document.getElementById("image-input") as HTMLInputElement;
       if (fileInput) fileInput.value = "";
       setSubmitting(false);
       return;
-    }
-
-    let uploadedImageUrl: string | null = null;
-
-    if (imageFile) {
-      const fileExt = imageFile.name.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const filePath = `uploads/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("activity-images")
-        .upload(filePath, imageFile);
-
-      if (uploadError) {
-        alert("画像アップロード失敗: " + uploadError.message);
-        setSubmitting(false);
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from("activity-images")
-        .getPublicUrl(filePath);
-
-      uploadedImageUrl = publicUrlData.publicUrl;
     }
 
     localStorage.setItem("rescueops_last_volunteer", finalVolunteerName);
@@ -691,7 +892,7 @@ export default function Home() {
         title,
         amount: newAmount,
         details,
-        image_url: uploadedImageUrl,
+        image_url: null,
         status: "pending",
       },
     ]);
@@ -702,7 +903,7 @@ export default function Home() {
       setTitle("");
       setAmount("");
       setDetails("");
-      setImageFile(null);
+      setOcrDoneMessage("");
       const fileInput = document.getElementById("image-input") as HTMLInputElement;
       if (fileInput) fileInput.value = "";
       fetchLogs();
@@ -782,7 +983,7 @@ export default function Home() {
     const link = document.createElement("a");
     link.href = url;
     const suffix = reportPeriod === "month" ? selectedMonth : new Date().toISOString().slice(0, 10);
-    link.setAttribute("download", `RescueOps_GrantReport_${userOrgSlug || "org"}_${suffix}.csv`);
+    link.setAttribute("download", `RescueOps_GrantReport_${suffix}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -850,307 +1051,320 @@ export default function Home() {
 
   const isAdmin = userRole === "admin" || userRole === "org_admin";
 
-  if (isPrintReceiptSheet) {
-    const approvedExpenses = reportExpenses.filter((l) => l.status === "approved");
-    return (
-      <div className="min-h-screen bg-white text-slate-900 p-8 font-sans">
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div className="flex justify-between items-center bg-slate-100 p-4 rounded-xl print:hidden border border-slate-200">
-            <div>
-              <h2 className="text-sm font-bold text-slate-800">🖨️ 領収書・レシート添付台紙（印刷プレビュー）</h2>
-              <p className="text-xs text-slate-500">ブラウザの印刷機能から「PDFとして保存」または印刷を行ってください。</p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => window.print()}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-sm hover:bg-indigo-500"
-              >
-                印刷 / PDF保存
-              </button>
-              <button
-                onClick={() => setIsPrintReceiptSheet(false)}
-                className="px-4 py-2 bg-slate-300 text-slate-800 rounded-xl text-xs font-bold hover:bg-slate-400"
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const alertAnimals = animals.filter((a) => {
+    if (!a.next_medical_date) return false;
+    return a.next_medical_date <= todayStr;
+  });
 
-          <div className="border-2 border-slate-800 p-8 space-y-6 bg-white">
-            <div className="text-center border-b-2 border-slate-800 pb-4">
-              <h1 className="text-xl font-black tracking-wider">領収書・レシート貼付台紙</h1>
-              <p className="text-xs text-slate-600 mt-1">
-                団体名：<strong>{userOrgName || "保護猫・動物愛護団体"}</strong> ｜ 対象期間：{reportPeriod === "month" ? selectedMonth : "全期間累計"}
-              </p>
-            </div>
+  const upcomingShifts = shifts.filter((s) => s.shift_date >= toLocalDateStr(new Date()));
 
-            <div className="space-y-4">
-              <table className="w-full text-left text-xs border-collapse border border-slate-400">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-800">
-                    <th className="border border-slate-400 p-2">日付</th>
-                    <th className="border border-slate-400 p-2">科目</th>
-                    <th className="border border-slate-400 p-2">支払先・内容</th>
-                    <th className="border border-slate-400 p-2">対象動物</th>
-                    <th className="border border-slate-400 p-2">申請者</th>
-                    <th className="border border-slate-400 p-2 text-right">金額 (円)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {approvedExpenses.map((exp) => {
-                    const anim = animals.find((a) => a.id === exp.animal_id);
-                    return (
-                      <tr key={exp.id}>
-                        <td className="border border-slate-400 p-2">{new Date(exp.created_at).toLocaleDateString("ja-JP")}</td>
-                        <td className="border border-slate-400 p-2 font-semibold">{exp.category || "その他"}</td>
-                        <td className="border border-slate-400 p-2">{exp.title}</td>
-                        <td className="border border-slate-400 p-2">{anim ? anim.name : "-"}</td>
-                        <td className="border border-slate-400 p-2">{exp.volunteer_name}</td>
-                        <td className="border border-slate-400 p-2 text-right font-bold">¥{(exp.amount || 0).toLocaleString()}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+if (isPrintReceiptSheet) {
+const approvedExpenses = reportExpenses.filter((l) => l.status === "approved");
+return (
+<div className="min-h-screen bg-white text-slate-900 p-8 font-sans">
+<div className="max-w-3xl mx-auto space-y-6">
+<div className="flex justify-between items-center bg-slate-100 p-4 rounded-xl print:hidden border border-slate-200">
+<div>
+<h2 className="text-sm font-bold text-slate-800">🖨️ 領収書・レシート添付台紙（印刷プレビュー）</h2>
+<p className="text-xs text-slate-500">ブラウザの印刷機能から「PDFとして保存」または印刷し、紙のレシート原本を貼付してください。</p>
+</div>
+<div className="flex gap-2">
+<button
+onClick={() => window.print()}
+className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-sm hover:bg-indigo-500"
+>
+印刷 / PDF保存
+</button>
+<button
+onClick={() => setIsPrintReceiptSheet(false)}
+className="px-4 py-2 bg-slate-300 text-slate-800 rounded-xl text-xs font-bold hover:bg-slate-400"
+>
+閉じる
+</button>
+</div>
+</div>
 
-              <div className="flex justify-end pt-2">
-                <div className="border border-slate-800 px-6 py-2 bg-slate-50 text-sm font-black">
-                  承認済み経費 総計: ¥{approvedExpenseTotal.toLocaleString()}
-                </div>
-              </div>
-            </div>
+<div className="border-2 border-slate-800 p-8 space-y-6 bg-white">
+<div className="text-center border-b-2 border-slate-800 pb-4">
+<h1 className="text-xl font-black tracking-wider">領収書・レシート貼付台紙</h1>
+<p className="text-xs text-slate-600 mt-1">
+団体名：<strong>{userOrgName || "保護猫・動物愛護団体"}</strong> ｜ 対象期間：{reportPeriod === "month"? selectedMonth: "全期間累計"}
+</p>
+</div>
 
-            <div className="border-t-2 border-dashed border-slate-400 pt-6 space-y-4">
-              <h3 className="text-xs font-bold text-slate-700">【領収書・レシート貼付スペース】</h3>
-              <div className="grid grid-cols-2 gap-4">
-                {approvedExpenses.map((exp, idx) => (
-                  <div key={exp.id} className="border border-slate-400 p-3 h-48 flex flex-col justify-between bg-slate-50/50">
-                    <div className="text-[10px] font-bold text-slate-600">
-                      #{idx + 1} {exp.title} (¥{(exp.amount || 0).toLocaleString()})
-                    </div>
-                    {exp.image_url ? (
-                      <img src={exp.image_url} alt="レシート" className="max-h-32 object-contain mx-auto" />
-                    ) : (
-                      <div className="text-center text-[10px] text-slate-400 my-auto">
-                        [ここにレシートを貼付 または デジタル画像添付]
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+<div className="space-y-4">
+<table className="w-full text-left text-xs border-collapse border border-slate-400">
+<thead>
+<tr className="bg-slate-100 text-slate-800">
+<th className="border border-slate-400 p-2">日付</th>
+<th className="border border-slate-400 p-2">科目</th>
+<th className="border border-slate-400 p-2">支払先・内容</th>
+<th className="border border-slate-400 p-2">対象動物</th>
+<th className="border border-slate-400 p-2">申請者</th>
+<th className="border border-slate-400 p-2 text-right">金額 (円)</th>
+</tr>
+</thead>
+<tbody>
+{approvedExpenses.map((exp) => {
+const anim = animals.find((a) => a.id === exp.animal_id);
+return (
+<tr key={exp.id}>
+<td className="border border-slate-400 p-2">{new Date(exp.created_at).toLocaleDateString("ja-JP")}</td>
+<td className="border border-slate-400 p-2 font-semibold">{exp.category || "その他"}</td>
+<td className="border border-slate-400 p-2">{exp.title}</td>
+<td className="border border-slate-400 p-2">{anim? anim.name: "-"}</td>
+<td className="border border-slate-400 p-2">{exp.volunteer_name}</td>
+<td className="border border-slate-400 p-2 text-right font-bold">¥{(exp.amount || 0).toLocaleString()}</td>
+</tr>
+);
+})}
+</tbody>
+</table>
 
-            <div className="grid grid-cols-2 pt-8 text-xs font-semibold">
-              <div>代表者確認印： _______________________</div>
-              <div className="text-right">経理担当確認印： _______________________</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+<div className="flex justify-end pt-2">
+<div className="border border-slate-800 px-6 py-2 bg-slate-50 text-sm font-black">
+承認済み経費 総計: ¥{approvedExpenseTotal.toLocaleString()}
+</div>
+</div>
+</div>
 
-  return (
-    <div
-      className={`min-h-screen transition-colors duration-300 p-4 md:p-8 relative ${
-        darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-800"
-      }`}
-    >
-      <div className="max-w-4xl mx-auto space-y-6">
-        
-        {/* 🎮 デモモード案内バナー */}
-        {isDemoMode && (
-          <div className="rounded-2xl p-3.5 bg-amber-500/15 border border-amber-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
-            <div className="flex items-center gap-2 text-xs font-semibold text-amber-500">
-              <Play className="w-4 h-4 fill-current shrink-0" />
-              <span>
-                <strong>体験デモモード中：</strong> 入力や承認を自由にお試しいただけます。ページを閉じるか「デモ終了」でリセットされます。
-              </span>
-            </div>
-            <button
-              onClick={exitDemoMode}
-              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold flex items-center gap-1 shrink-0 transition-all"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              デモ終了
-            </button>
-          </div>
-        )}
+<div className="border-t-2 border-dashed border-slate-400 pt-6 space-y-4">
+<h3 className="text-xs font-bold text-slate-700"></h3>
+<div className="grid grid-cols-2 gap-4">
+{approvedExpenses.map((exp, idx) => (
+<div key={exp.id} className="border border-slate-400 p-3 h-48 flex flex-col justify-between bg-slate-50/50">
+<div className="text-[10px] font-bold text-slate-600">
+#{idx + 1} {exp.title} (¥{(exp.amount || 0).toLocaleString()})
+</div>
+<div className="text-center text-[10px] text-slate-400 my-auto">
+[ここに紙のレシート・領収書原本を貼付]
+</div>
+</div>
+))}
+</div>
+</div>
 
-        {/* ヘッダー */}
-        <header
-          className={`rounded-2xl p-6 shadow-sm border transition-colors print:border-none print:shadow-none print:p-2 ${
-            darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"
-          } flex flex-col sm:flex-row sm:items-center justify-between gap-4`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 text-amber-500 flex items-center gap-1.5 print:hidden">
-              <Cat className="w-6 h-6" />
-              <Dog className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black tracking-tight flex items-center gap-2 flex-wrap">
-                RescueOps
-                {userOrgName && (
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                    🏢 {userOrgName}
-                  </span>
-                )}
-              </h1>
-              <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                動物保護活動・助成金報告サポートプラットフォーム
-              </p>
-            </div>
-          </div>
+<div className="grid grid-cols-2 pt-8 text-xs font-semibold">
+<div>代表者確認印： _______________________</div>
+<div className="text-right">経理担当確認印： _______________________</div>
+</div>
+</div>
+</div>
+</div>
+);
+}
 
-          <div className="flex items-center gap-2 flex-wrap print:hidden">
-            {isAdmin && (
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                title="名簿・保護動物・招待リンク管理"
-                className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                  showSettings
-                    ? "bg-indigo-600 border-indigo-500 text-white"
-                    : darkMode
-                    ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-                    : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-                名簿・団体管理
-              </button>
-            )}
+return (
+<div
+className={`min-h-screen transition-colors duration-300 p-4 md:p-8 relative ${
+darkMode? "bg-slate-950 text-slate-100": "bg-slate-50 text-slate-800"
+}`}
+>
+<div className="max-w-4xl mx-auto space-y-6">
 
-            {userOrgId && (
-              <button
-                onClick={() => setIsPrintReceiptSheet(true)}
-                className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                  darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                <FileText className="w-4 h-4 text-emerald-500" />
-                領収書台紙 印刷
-              </button>
-            )}
+{isDemoMode && (
+<div className="rounded-2xl p-3.5 bg-amber-500/15 border border-amber-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
+<div className="flex items-center gap-2 text-xs font-semibold text-amber-500">
+<Play className="w-4 h-4 fill-current shrink-0" />
+<span>
+<strong>体験デモモード中：</strong> 入力や承認を自由にお試しいただけます。ページを閉じるか「デモ終了」でリセットされます。
+</span>
+</div>
+<button
+onClick={exitDemoMode}
+className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold flex items-center gap-1 shrink-0 transition-all"
+>
+<RotateCcw className="w-3.5 h-3.5" />
+デモ終了
+</button>
+</div>
+)}
 
-            <button
-              onClick={toggleDarkMode}
-              className={`p-2.5 rounded-xl border transition-all ${
-                darkMode
-                  ? "bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700"
-                  : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
+{alertAnimals.length > 0 && (
+<div className="rounded-2xl p-4 bg-rose-500/15 border border-rose-500/40 flex items-center gap-3 animate-pulse">
+<AlertCircle className="w-6 h-6 text-rose-500 shrink-0" />
+<div className="text-xs">
+<strong className="text-rose-500 font-bold"></strong>
+<span>以下の保護動物の通院・ワクチン予定日が到来または過ぎています：</span>
+<div className="font-semibold mt-1">
+{alertAnimals.map(a => `🐾 ${a.name} (${a.next_medical_date})`).join(' ｜ ')}
+</div>
+</div>
+</div>
+)}
 
-            {userOrgId && (
-              <button
-                onClick={exportToCSV}
-                className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                  darkMode ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700"
-                }`}
-              >
-                <Download className="w-4 h-4 text-indigo-500" />
-                CSV出力
-              </button>
-            )}
+<header
+className={`rounded-2xl p-6 shadow-sm border transition-colors print:border-none print:shadow-none print:p-2 ${
+darkMode? "bg-slate-900 border-slate-800": "bg-white border-slate-100"
+} flex flex-col sm:flex-row sm:items-center justify-between gap-4`}
+>
+<div className="flex items-center gap-3">
+<div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 text-amber-500 flex items-center gap-1.5 print:hidden">
+<Cat className="w-6 h-6" />
+<Dog className="w-6 h-6" />
+</div>
+<div>
+<h1 className="text-2xl font-black tracking-tight flex items-center gap-2 flex-wrap">
+RescueOps
+{userOrgName && (
+<span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+🏢 {userOrgName}
+</span>
+)}
+</h1>
+<p className={`text-xs mt-0.5 ${darkMode? "text-slate-400": "text-slate-500"}`}>
+動物保護活動・助成金報告サポートプラットフォーム
+</p>
+</div>
+</div>
 
-            {user ? (
-              <div className="flex items-center gap-2">
-                <span className="bg-emerald-500/10 text-emerald-500 text-xs font-semibold px-3 py-2 rounded-xl border border-emerald-500/20 flex items-center gap-1">
-                  <Unlock className="w-3 h-3" />
-                  {userRole === "admin" ? "サイト管理者" : "団体管理者"}
-                </span>
-                <button
-                  onClick={handleLogout}
-                  className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1 transition-all ${
-                    darkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-slate-100 border-slate-200"
-                  }`}
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              !isDemoMode && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={startDemoMode}
-                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    デモ体験
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsSignUpMode(false);
-                      setShowLoginModal(true);
-                    }}
-                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    管理者ログイン / 団体登録
-                  </button>
-                </div>
-              )
-            )}
-          </div>
-        </header>
+<div className="flex items-center gap-2 flex-wrap print:hidden">
+{isAdmin && (
+<button
+onClick={() => setShowSettings(!showSettings)}
+title="名簿・保護動物・招待リンク管理"
+className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+showSettings
+? "bg-indigo-600 border-indigo-500 text-white"
+: darkMode
+? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+: "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
+}`}
+>
+<Settings className="w-4 h-4" />
+名簿・団体管理
+</button>
+)}
 
-        {/* ⚙️ 管理者専用パネル */}
-        {showSettings && isAdmin && (
-          <section
-            className={`rounded-2xl p-5 border shadow-sm space-y-6 transition-all print:hidden ${
-              darkMode ? "bg-slate-900/90 border-indigo-500/30" : "bg-indigo-50/50 border-indigo-200"
-            }`}
-          >
-            {userOrgSlug && (
-              <div className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/80 border-indigo-500/30" : "bg-white border-indigo-200"}`}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-400">
-                    <LinkIcon className="w-4 h-4" />
-                    ボランティア専用アクセスURL（ログイン不要）
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-400">
-                  このURLやQRコードをボランティアメンバーに共有すると、アカウント登録やログインなしで自団体の申請画面に直接アクセスできます。
-                </p>
+{userOrgId && (
+<button
+onClick={() => setIsPrintReceiptSheet(true)}
+className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
+darkMode? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700": "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+}`}
+>
+<FileText className="w-4 h-4 text-emerald-500" />
+領収書台紙 印刷
+</button>
+)}
 
-                <div className="flex flex-col sm:flex-row items-center gap-4">
-                  <div className="flex-1 w-full space-y-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={getInviteUrl()}
-                        className={`w-full px-3 py-2 rounded-xl border text-xs font-mono ${darkMode ? "bg-slate-950 border-slate-700 text-indigo-300" : "bg-slate-50 border-slate-200 text-indigo-700"}`}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleCopyInviteLink}
-                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shrink-0"
-                      >
-                        {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        {copiedLink ? "コピー済" : "URLコピー"}
-                      </button>
-                    </div>
-                  </div>
+<button
+onClick={toggleDarkMode}
+className={`p-2.5 rounded-xl border transition-all ${
+darkMode
+? "bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700"
+: "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
+}`}
+>
+{darkMode? <Sun className="w-4 h-4" />: <Moon className="w-4 h-4" />}
+</button>
 
-                  <div className="p-2 bg-white rounded-xl border border-slate-200 shrink-0 text-center">
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getInviteUrl())}`}
-                      alt="団体専用QRコード"
-                      className="w-24 h-24 mx-auto"
-                    />
-                    <span className="text-[10px] font-bold text-slate-600 flex items-center justify-center gap-1 mt-1">
-                      <QrCode className="w-3 h-3" /> スマホ読み取り用
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
+{userOrgId && (
+<button
+onClick={exportToCSV}
+className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
+darkMode? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700": "bg-white border-slate-200 text-slate-700"
+}`}
+>
+<Download className="w-4 h-4 text-indigo-500" />
+CSV出力
+</button>
+)}
 
-            {/* 👥 ボランティア・寄付者名簿の管理 */}
+{user? (
+<div className="flex items-center gap-2">
+<span className="bg-emerald-500/10 text-emerald-500 text-xs font-semibold px-3 py-2 rounded-xl border border-emerald-500/20 flex items-center gap-1">
+<Unlock className="w-3 h-3" />
+{userRole === "admin"? "サイト管理者": "団体管理者"}
+</span>
+<button
+onClick={handleLogout}
+className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1 transition-all ${
+darkMode? "bg-slate-800 border-slate-700 text-slate-300": "bg-slate-100 border-slate-200"
+}`}
+>
+<LogOut className="w-3.5 h-3.5" />
+</button>
+</div>
+): (
+!isDemoMode && (
+<div className="flex items-center gap-2">
+<button
+onClick={startDemoMode}
+className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+>
+<Play className="w-3.5 h-3.5 fill-current" />
+デモ体験
+</button>
+<button
+onClick={() => {
+setIsSignUpMode(false);
+setShowLoginModal(true);
+}}
+className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+>
+<Lock className="w-3.5 h-3.5" />
+管理者ログイン / 団体登録
+</button>
+</div>
+)
+)}
+</div>
+</header>
+
+{showSettings && isAdmin && (
+<section
+className={`rounded-2xl p-5 border shadow-sm space-y-6 transition-all print:hidden ${
+darkMode? "bg-slate-900/90 border-indigo-500/30": "bg-indigo-50/50 border-indigo-200"
+}`}
+>
+{userOrgSlug && (
+<div className={`p-4 rounded-xl border space-y-3 ${darkMode? "bg-slate-800/80 border-indigo-500/30": "bg-white border-indigo-200"}`}>
+<div className="flex items-center justify-between">
+<h3 className="text-sm font-bold flex items-center gap-2 text-indigo-400">
+<LinkIcon className="w-4 h-4" />
+ボランティア専用アクセスURL（ログイン不要）
+</h3>
+</div>
+<p className="text-xs text-slate-400">
+このURLやQRコードをボランティアメンバーに共有すると、アカウント登録やログインなしで自団体の申請画面に直接アクセスできます。
+</p>
+
+<div className="flex flex-col sm:flex-row items-center gap-4">
+<div className="flex-1 w-full space-y-2">
+<div className="flex items-center gap-2">
+<input
+type="text"
+readOnly
+value={getInviteUrl()}
+className={`w-full px-3 py-2 rounded-xl border text-xs font-mono ${darkMode? "bg-slate-950 border-slate-700 text-indigo-300": "bg-slate-50 border-slate-200 text-indigo-700"}`}
+/>
+<button
+type="button"
+onClick={handleCopyInviteLink}
+className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shrink-0"
+>
+{copiedLink? <Check className="w-3.5 h-3.5" />: <Copy className="w-3.5 h-3.5" />}
+{copiedLink? "コピー済": "URLコピー"}
+</button>
+</div>
+</div>
+
+<div className="p-2 bg-white rounded-xl border border-slate-200 shrink-0 text-center">
+<img
+src={`https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(getInviteUrl())}`}
+alt="団体専用QRコード"
+className="w-24 h-24 mx-auto"
+/>
+<span className="text-[10px] font-bold text-slate-600 flex items-center justify-center gap-1 mt-1">
+<QrCode className="w-3 h-3" /> スマホ読み取り用
+</span>
+</div>
+</div>
+</div>
+)}
+
             <div className="space-y-3">
               <div>
                 <h3 className="text-sm font-bold flex items-center gap-2 text-indigo-500">
@@ -1158,7 +1372,7 @@ export default function Home() {
                   ボランティア・寄付者名簿の管理 ({volunteers.length}名)
                 </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  メンバーや支援者・寄付者の連絡先やメールアドレスを登録しておくと、今後のサンクスメール送信や報告に活用できます。
+                  メンバーや支援者・寄付者の連絡先やメールアドレス、住所を登録・変更できます。
                 </p>
               </div>
 
@@ -1176,8 +1390,20 @@ export default function Home() {
                   <tbody className="divide-y divide-slate-700/30">
                     {volunteers.map((vol) => {
                       const isDonor = vol.member_type === "donor" || vol.role?.includes("寄付");
+                      const isEditing = editingVolId === vol.id;
                       return (
-                        <tr key={vol.id} className={darkMode ? "hover:bg-slate-800/50" : "hover:bg-white"}>
+                        <tr
+                          key={vol.id}
+                          className={`${
+                            isEditing
+                              ? darkMode
+                                ? "bg-indigo-950/60"
+                                : "bg-indigo-50"
+                              : darkMode
+                              ? "hover:bg-slate-800/50"
+                              : "hover:bg-white"
+                          }`}
+                        >
                           <td className="p-2.5">
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
@@ -1214,12 +1440,23 @@ export default function Home() {
                             )}
                           </td>
                           <td className="p-2.5 text-center">
-                            <button
-                              onClick={() => handleDeleteVolunteer(vol.id, vol.name)}
-                              className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-[10px] font-bold"
-                            >
-                              削除
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => startEditVolunteer(vol)}
+                                className="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 text-[10px] font-bold flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                変更
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteVolunteer(vol.id, vol.name)}
+                                className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-[10px] font-bold"
+                              >
+                                削除
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1228,8 +1465,25 @@ export default function Home() {
                 </table>
               </div>
 
-              <form onSubmit={handleAddVolunteer} className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
-                <p className="text-xs font-bold text-indigo-400">＋ 名簿に新しく登録する（氏名以外はすべて任意）</p>
+              <form onSubmit={handleSaveVolunteer} className={`p-4 rounded-xl border space-y-3 ${
+                editingVolId
+                  ? darkMode ? "bg-indigo-950/40 border-indigo-500" : "bg-indigo-50/80 border-indigo-400"
+                  : darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-indigo-400">
+                    {editingVolId ? `✏️ 「${newVolName}」さんの登録情報を編集中` : "＋ 名簿に新しく登録する（住所・メール・電話等も入力可能）"}
+                  </p>
+                  {editingVolId && (
+                    <button
+                      type="button"
+                      onClick={cancelEditVolunteer}
+                      className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                    >
+                      <X className="w-3.5 h-3.5" /> キャンセル
+                    </button>
+                  )}
+                </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
@@ -1268,7 +1522,7 @@ export default function Home() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">メールアドレス（サンクスメール用・任意）</label>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">メールアドレス（任意）</label>
                     <input
                       type="email"
                       placeholder="例: donor@example.com"
@@ -1278,7 +1532,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">電話番号・LINE等（任意）</label>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">電話番号・連絡先（任意）</label>
                     <input
                       type="text"
                       placeholder="例: 090-1234-5678"
@@ -1288,7 +1542,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">住所（お礼状送付等・任意）</label>
+                    <label className="block text-[10px] font-semibold text-slate-400 mb-1">住所（任意）</label>
                     <input
                       type="text"
                       placeholder="例: 宮城県仙台市..."
@@ -1299,69 +1553,230 @@ export default function Home() {
                   </div>
                 </div>
 
-                <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-sm">
-                  名簿に登録する
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className={`flex-1 py-2.5 text-white text-xs font-bold rounded-xl shadow-sm ${
+                      editingVolId ? "bg-emerald-600 hover:bg-emerald-500" : "bg-indigo-600 hover:bg-indigo-500"
+                    }`}
+                  >
+                    {editingVolId ? "✔ 変更内容を保存する" : "名簿に登録する"}
+                  </button>
+                  {editingVolId && (
+                    <button
+                      type="button"
+                      onClick={cancelEditVolunteer}
+                      className="px-4 py-2.5 rounded-xl border border-slate-500/40 text-xs font-bold hover:bg-slate-500/10"
+                    >
+                      キャンセル
+                    </button>
+                  )}
+                </div>
               </form>
             </div>
 
-            {/* 🐾 保護動物管理 */}
             <div className="space-y-3 pt-2 border-t border-slate-700/30">
               <h3 className="text-sm font-bold flex items-center gap-2 text-amber-500">
                 <Heart className="w-4 h-4" />
-                保護動物（個体別集計用）の管理 ({animals.length}頭)
+                保護動物 ＆ 次回医療・ワクチン期限管理 ({animals.length}頭)
               </h3>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {animals.map((anim) => (
                   <div
                     key={anim.id}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+                    className={`p-3 rounded-xl border text-xs flex justify-between items-center ${
                       darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
                     }`}
                   >
-                    <span>{anim.species === "dog" ? "🐶" : "🐱"} {anim.name}</span>
+                    <div>
+                      <div className="font-bold">
+                        {anim.species === "dog" ? "🐶" : "🐱"} {anim.name}
+                      </div>
+                      <div className="text-[11px] text-rose-400">
+                        次回医療日: {anim.next_medical_date || "未設定"} ({anim.medical_notes || "メモなし"})
+                      </div>
+                    </div>
                     <button
                       onClick={() => handleDeleteAnimal(anim.id)}
-                      className="text-rose-400 hover:text-rose-500 font-bold"
+                      className="text-rose-400 hover:text-rose-500 font-bold text-xs"
                     >
-                      ×
+                      削除
                     </button>
                   </div>
                 ))}
               </div>
 
-              <form onSubmit={handleAddAnimal} className="flex flex-col sm:flex-row gap-2">
-                <select
-                  value={newAnimalSpecies}
-                  onChange={(e) => setNewAnimalSpecies(e.target.value)}
-                  className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"}`}
-                >
-                  <option value="cat">🐱 猫</option>
-                  <option value="dog">🐶 犬</option>
-                </select>
-                <input
-                  type="text"
-                  required
-                  placeholder="保護動物の名前（例: ミケちゃん・TNR1号）"
-                  value={newAnimalName}
-                  onChange={(e) => setNewAnimalName(e.target.value)}
-                  className={`flex-1 px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"}`}
-                />
-                <button type="submit" className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl">
-                  保護動物を登録
+              <form onSubmit={handleAddAnimal} className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
+                <p className="text-xs font-bold text-indigo-400">＋ 保護動物と次回医療予定の登録</p>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <select
+                    value={newAnimalSpecies}
+                    onChange={(e) => setNewAnimalSpecies(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  >
+                    <option value="cat">🐱 猫</option>
+                    <option value="dog">🐶 犬</option>
+                  </select>
+                  <input
+                    type="text"
+                    required
+                    placeholder="名前（例: タマちゃん）"
+                    value={newAnimalName}
+                    onChange={(e) => setNewAnimalName(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                  <input
+                    type="date"
+                    value={newAnimalDate}
+                    onChange={(e) => setNewAnimalDate(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                  <input
+                    type="text"
+                    placeholder="医療メモ（例: ワクチン次回）"
+                    value={newAnimalNotes}
+                    onChange={(e) => setNewAnimalNotes(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                </div>
+                <button type="submit" className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-sm">
+                  保護動物・スケジュールを登録
                 </button>
               </form>
             </div>
           </section>
         )}
 
-        {/* 📝 新規申請フォーム */}
+        {userOrgId && (
+          <section className={`rounded-2xl p-6 border shadow-sm print:hidden ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
+            <h2 className="text-base font-bold mb-4 flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-indigo-500" />
+              当番表（シフト）
+            </h2>
+
+            {upcomingShifts.length === 0 ? (
+              <p className="text-xs text-slate-400">これからの当番はまだ登録されていません。</p>
+            ) : (
+              <ul className="space-y-2">
+                {upcomingShifts.map((s) => {
+                  const d = new Date(`${s.shift_date}T00:00:00`);
+                  const dateLabel = `${d.getMonth() + 1}/${d.getDate()}（${"日月火水木金土"[d.getDay()]}）`;
+                  const isToday = s.shift_date === toLocalDateStr(new Date());
+                  return (
+                    <li
+                      key={s.id}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-xl border text-xs ${
+                        darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"
+                      }`}
+                    >
+                      <span className="font-bold w-24 shrink-0">
+                        {isToday ? `今日 ${dateLabel}` : dateLabel}
+                      </span>
+                      <span className="font-semibold">{s.volunteer_name}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 font-bold">
+                        {s.role}
+                      </span>
+                      {s.note && <span className="text-slate-400">{s.note}</span>}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteShift(s.id)}
+                          className="ml-auto text-slate-400 hover:text-rose-500"
+                          aria-label="当番を削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {isAdmin ? (
+              <form onSubmit={handleAddShift} className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1">日付</label>
+                  <input
+                    type="date"
+                    required
+                    value={newShiftDate}
+                    onChange={(e) => setNewShiftDate(e.target.value)}
+                    className={`w-full px-2 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1">担当者</label>
+                  {volunteers.length > 0 ? (
+                    <select
+                      required
+                      value={newShiftVolunteer}
+                      onChange={(e) => setNewShiftVolunteer(e.target.value)}
+                      className={`w-full px-2 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    >
+                      <option value="">選択してください</option>
+                      {volunteers
+                        .filter((v) => v.member_type !== "donor")
+                        .map((v) => (
+                          <option key={v.id} value={v.nickname || v.name}>
+                            {v.nickname || v.name}（{v.name}）
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      placeholder="例: はなこ"
+                      value={newShiftVolunteer}
+                      onChange={(e) => setNewShiftVolunteer(e.target.value)}
+                      className={`w-full px-2 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1">役割</label>
+                  <select
+                    value={newShiftRole}
+                    onChange={(e) => setNewShiftRole(e.target.value)}
+                    className={`w-full px-2 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  >
+                    {SHIFT_ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1">メモ（任意）</label>
+                  <input
+                    type="text"
+                    placeholder="例: 朝9時〜"
+                    value={newShiftNote}
+                    onChange={(e) => setNewShiftNote(e.target.value)}
+                    className={`w-full px-2 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl"
+                >
+                  当番を追加
+                </button>
+              </form>
+            ) : (
+              <p className="text-[11px] text-slate-400 mt-3">当番の追加・変更は団体管理者が行います。</p>
+            )}
+          </section>
+        )}
+
         {userOrgId && (
           <section className={`rounded-2xl p-6 border shadow-sm print:hidden ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
             <h2 className="text-base font-bold mb-4 flex items-center gap-2">
               <PlusCircle className="w-5 h-5 text-indigo-500" />
-              新規申請フォーム（経費精算・物資寄付）
+              新規申請フォーム（スマホOCRレシート読取補助付き）
             </h2>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -1390,6 +1805,66 @@ export default function Home() {
                   <Package className="w-4 h-4" />
                   物資寄付
                 </button>
+              </div>
+
+              <div className="p-4 rounded-xl border border-indigo-500/30 bg-indigo-500/5 space-y-2">
+                <label className="block text-xs font-bold text-indigo-400 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4" />
+                  レシート撮影・AI文字認識（OCR）入力補助（画像は保存されません）
+                </label>
+                <p className="text-[11px] text-slate-400">
+                  金額や項目の手入力を省くための読み取り補助です。紙のレシート原本は別途、領収書台紙に貼付して提出してください。
+                </p>
+                <input
+                  id="image-input"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => handleReceiptImageChange(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white"
+                />
+                {isOcrProcessing && (
+                  <p className="text-xs text-amber-400 font-bold animate-pulse">
+                    ✨ レシートから金額・項目を読み取り中...
+                  </p>
+                )}
+                {ocrDoneMessage && (
+                  <p className="text-xs text-emerald-500 font-bold">
+                    {ocrDoneMessage}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-400 mr-1">定番テンプレート:</span>
+                {LOG_TEMPLATES.map((t) => (
+                  <button
+                    key={t.label}
+                    type="button"
+                    onClick={() => applyLogTemplate(t)}
+                    className={`px-2.5 py-1.5 rounded-full border text-[11px] font-semibold transition-all ${
+                      darkMode
+                        ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-indigo-500"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:border-indigo-400"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+                {logs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={copyLastLog}
+                    className={`px-2.5 py-1.5 rounded-full border text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                      darkMode
+                        ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-indigo-500"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:border-indigo-400"
+                    }`}
+                  >
+                    <Copy className="w-3 h-3" />
+                    前回の申請をコピー
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1468,13 +1943,13 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">レシート画像</label>
+                  <label className="block text-xs font-semibold mb-1">備考・詳細（任意）</label>
                   <input
-                    id="image-input"
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-                    className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-600"
+                    type="text"
+                    placeholder="例: 領収書原本は郵送済み"
+                    value={details}
+                    onChange={(e) => setDetails(e.target.value)}
+                    className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
                   />
                 </div>
               </div>
@@ -1491,7 +1966,6 @@ export default function Home() {
           </section>
         )}
 
-        {/* 🔄 メインタブ切り替え */}
         {userOrgId && (
           <div className="flex gap-2 border-b border-slate-700/30 pb-2 print:hidden">
             <button
@@ -1523,7 +1997,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* 📊 タブ2：助成金レポートダッシュボード */}
         {userOrgId && activeTab === "summary" && (
           <section className="space-y-6">
             <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
@@ -1659,7 +2132,6 @@ export default function Home() {
           </section>
         )}
 
-        {/* 📋 タブ1：タイムライン一覧 */}
         {activeTab === "logs" && (
           <section className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 print:hidden">
@@ -1765,7 +2237,6 @@ export default function Home() {
           </section>
         )}
 
-        {/* ログイン / 新規団体登録モーダル */}
         {showLoginModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className={`p-6 rounded-2xl max-w-sm w-full space-y-4 border max-h-[90vh] overflow-y-auto ${darkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}>
@@ -1785,7 +2256,7 @@ export default function Home() {
 
               {isSignUpMode ? (
                 <form onSubmit={handleSignUp} className="space-y-3">
-                  <p className="text-[11px] text-slate-400">団体名を入力すると、専用アクセスURLが自動で作成されます。</p>
+                  <p className="text-[11px] text-slate-400">団体名を入力して登録すると、自動で専用アカウントが作成されます。</p>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-400 mb-1">団体名（必須）</label>
                     <input
@@ -1796,25 +2267,11 @@ export default function Home() {
                       onChange={(e) => handleOrgNameChange(e.target.value)}
                       className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
                     />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                      専用URLの末尾（自動作成・半角英数字で変更も可）
-                    </label>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] text-slate-400 font-mono">?org=</span>
-                      <input
-                        type="text"
-                        required
-                        placeholder="自動入力されます"
-                        value={regOrgSlug}
-                        onChange={(e) => {
-                          setIsSlugManuallyEdited(true);
-                          setRegOrgSlug(e.target.value);
-                        }}
-                        className={`w-full px-3 py-2 rounded-xl border text-xs font-mono ${darkMode ? "bg-slate-800 border-slate-700 text-indigo-300" : "bg-slate-50 border-slate-200 text-indigo-700"}`}
-                      />
-                    </div>
+                    {regOrgSlug && (
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        ボランティア共有URL: <span className="font-mono text-indigo-400">?org={regOrgSlug}</span>
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-400 mb-1">あなたの氏名（管理者名・必須）</label>
@@ -1832,6 +2289,8 @@ export default function Home() {
                     <input
                       type="email"
                       required
+                      name="email"
+                      autoComplete="email"
                       placeholder="admin@example.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
@@ -1843,6 +2302,8 @@ export default function Home() {
                     <input
                       type="password"
                       required
+                      name="password"
+                      autoComplete="new-password"
                       placeholder="6文字以上"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -1865,6 +2326,8 @@ export default function Home() {
                     <input
                       type="email"
                       required
+                      name="email"
+                      autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
@@ -1875,10 +2338,21 @@ export default function Home() {
                     <input
                       type="password"
                       required
+                      name="password"
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
                     />
+                  </div>
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-[11px] font-semibold text-indigo-400 hover:underline"
+                    >
+                      パスワードを忘れた方はこちら
+                    </button>
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <button type="button" onClick={() => setShowLoginModal(false)} className="px-3 py-1.5 rounded-xl border text-xs font-semibold">
@@ -1890,6 +2364,36 @@ export default function Home() {
                   </div>
                 </form>
               )}
+            </div>
+          </div>
+        )}
+
+        {showResetPasswordModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className={`p-6 rounded-2xl max-w-sm w-full space-y-4 border ${darkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`}>
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <Lock className="w-4 h-4 text-indigo-500" />
+                新しいパスワードの設定
+              </h3>
+              <p className="text-[11px] text-slate-400">パスワード再設定用のリンクから開かれました。新しいパスワードを入力してください。</p>
+              <form onSubmit={handleResetPassword} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">新しいパスワード（6文字以上）</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    name="new-password"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                </div>
+                <button type="submit" className="w-full px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold">
+                  パスワードを変更する
+                </button>
+              </form>
             </div>
           </div>
         )}
