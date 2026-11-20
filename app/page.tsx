@@ -771,7 +771,11 @@ export default function Home() {
 
     setLoginLoading(true);
 
-    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: window.location.origin + "/" },
+    });
     if (authError || !authData.user) {
       alert("アカウント作成失敗 (Auth): " + (authError?.message || "不明なエラー"));
       setLoginLoading(false);
@@ -779,6 +783,8 @@ export default function Home() {
     }
 
     const newUser = authData.user;
+    // セッションが無い場合はメール確認が完了するまで登録は未完了
+    const needsEmailConfirm = !authData.session;
 
     // 組織の作成（新スキーマ: id が PK、owner_user_id に管理者、slug を保存）
     let slug = regOrgSlug || generateSlugFromOrgName(regOrgName.trim());
@@ -851,7 +857,13 @@ export default function Home() {
       return;
     }
 
-    alert("🎉 団体の登録とアカウント作成が完了しました！");
+    if (needsEmailConfirm) {
+      alert(
+        "🎉 団体とアカウントを作成しました！\n\n確認メールを送信しました。メール内のリンクをクリックすると登録が完了します。\n完了後にログインすると、そのまま管理画面が開きます。"
+      );
+    } else {
+      alert("🎉 団体の登録とアカウント作成が完了しました！");
+    }
     setEmail("");
     setPassword("");
     setRegOrgName("");
