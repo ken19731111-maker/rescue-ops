@@ -99,6 +99,27 @@ type Shift = {
 
 const SHIFT_ROLES = ["餌やり・水替え", "掃除", "通院・搬送", "預かり", "譲渡会", "その他"];
 
+// カレンダー表示用の短い役割名と、役割ごとの色（チップ用）
+const SHIFT_ROLE_SHORT: Record<string, string> = {
+  "餌やり・水替え": "餌やり",
+  "掃除": "掃除",
+  "通院・搬送": "通院",
+  "預かり": "預かり",
+  "譲渡会": "譲渡会",
+  "その他": "その他",
+};
+
+const SHIFT_ROLE_CHIP: Record<string, string> = {
+  "餌やり・水替え": "bg-amber-500/10 text-amber-500",
+  "掃除": "bg-sky-500/10 text-sky-500",
+  "通院・搬送": "bg-rose-500/10 text-rose-500",
+  "預かり": "bg-emerald-500/10 text-emerald-500",
+  "譲渡会": "bg-violet-500/10 text-violet-500",
+  "その他": "bg-slate-500/10 text-slate-400",
+};
+
+const shiftRoleChipClass = (role: string) => SHIFT_ROLE_CHIP[role] ?? SHIFT_ROLE_CHIP["その他"];
+
 const toLocalDateStr = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -237,6 +258,11 @@ export default function Home() {
   const [newShiftVolunteer, setNewShiftVolunteer] = useState("");
   const [newShiftRole, setNewShiftRole] = useState(SHIFT_ROLES[0]);
   const [newShiftNote, setNewShiftNote] = useState("");
+  const [shiftCalendarMonth, setShiftCalendarMonth] = useState(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), 1);
+  });
+  const [selectedShiftDate, setSelectedShiftDate] = useState(() => toLocalDateStr(new Date()));
 
   const [user, setUser] = useState<any>(null);
   const [userOrgId, setUserOrgId] = useState<string | null>(null);
@@ -1085,7 +1111,20 @@ export default function Home() {
     return a.next_medical_date <= todayStr;
   });
 
-  const upcomingShifts = shifts.filter((s) => s.shift_date >= toLocalDateStr(new Date()));
+  // 当番カレンダー用: 表示中の月（6週分グリッド）と日別グルーピング
+  const calYear = shiftCalendarMonth.getFullYear();
+  const calMonth = shiftCalendarMonth.getMonth();
+  const calendarStart = new Date(calYear, calMonth, 1 - new Date(calYear, calMonth, 1).getDay());
+  const calendarDays = Array.from({ length: 42 }, (_, i) =>
+    new Date(calendarStart.getFullYear(), calendarStart.getMonth(), calendarStart.getDate() + i)
+  );
+  const shiftsByDate = new Map<string, Shift[]>();
+  shifts.forEach((s) => {
+    const arr = shiftsByDate.get(s.shift_date) ?? [];
+    arr.push(s);
+    shiftsByDate.set(s.shift_date, arr);
+  });
+  const selectedDayShifts = shiftsByDate.get(selectedShiftDate) ?? [];
 
 if (isPrintReceiptSheet) {
 const approvedExpenses = reportExpenses.filter((l) => l.status === "approved");
@@ -1682,27 +1721,119 @@ className="w-24 h-24 mx-auto"
               <CalendarDays className="w-5 h-5 text-indigo-500" />
               当番表（シフト）
             </h2>
+            <p className="text-[11px] text-slate-400 -mt-2 mb-3">
+              カレンダーの日付を押すと、その日の当番が見られます{isAdmin ? "（登録フォームの日付にも入ります）" : ""}。
+            </p>
 
-            {upcomingShifts.length === 0 ? (
-              <p className="text-xs text-slate-400">これからの当番はまだ登録されていません。</p>
-            ) : (
-              <ul className="space-y-2">
-                {upcomingShifts.map((s) => {
-                  const d = new Date(`${s.shift_date}T00:00:00`);
-                  const dateLabel = `${d.getMonth() + 1}/${d.getDate()}（${"日月火水木金土"[d.getDay()]}）`;
-                  const isToday = s.shift_date === toLocalDateStr(new Date());
-                  return (
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShiftCalendarMonth(new Date(calYear, calMonth - 1, 1))}
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${darkMode ? "border-slate-700 hover:bg-slate-800" : "border-slate-200 hover:bg-slate-50"}`}
+                  aria-label="前月"
+                >
+                  ‹
+                </button>
+                <span className="text-sm font-bold">
+                  {calYear}年{calMonth + 1}月
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShiftCalendarMonth(new Date(calYear, calMonth + 1, 1))}
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${darkMode ? "border-slate-700 hover:bg-slate-800" : "border-slate-200 hover:bg-slate-50"}`}
+                  aria-label="翌月"
+                >
+                  ›
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const t = new Date();
+                  setShiftCalendarMonth(new Date(t.getFullYear(), t.getMonth(), 1));
+                  setSelectedShiftDate(toLocalDateStr(t));
+                  if (isAdmin) setNewShiftDate(toLocalDateStr(t));
+                }}
+                className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300"
+              >
+                今月に戻る
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 mb-1">
+              {["日", "月", "火", "水", "木", "金", "土"].map((w, i) => (
+                <div key={w} className={i === 0 ? "text-rose-400" : i === 6 ? "text-sky-400" : ""}>
+                  {w}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1">
+              {calendarDays.map((day) => {
+                const dateStr = toLocalDateStr(day);
+                const dayShifts = shiftsByDate.get(dateStr) ?? [];
+                const inMonth = day.getMonth() === calMonth;
+                const isToday = dateStr === toLocalDateStr(new Date());
+                const isSelected = dateStr === selectedShiftDate;
+                return (
+                  <button
+                    key={dateStr}
+                    type="button"
+                    onClick={() => {
+                      setSelectedShiftDate(dateStr);
+                      if (isAdmin) setNewShiftDate(dateStr);
+                    }}
+                    className={`min-h-[64px] sm:min-h-[76px] rounded-xl border p-1 text-left align-top transition-colors ${
+                      isSelected
+                        ? "border-indigo-500 ring-1 ring-indigo-500/50"
+                        : darkMode
+                          ? "border-slate-800 hover:border-slate-600"
+                          : "border-slate-100 hover:border-slate-300"
+                    } ${isToday ? (darkMode ? "bg-indigo-500/10" : "bg-indigo-50") : ""} ${inMonth ? "" : "opacity-40"}`}
+                  >
+                    <span className={`text-[10px] font-bold ${isToday ? "text-indigo-400" : "text-slate-400"}`}>
+                      {day.getDate()}
+                    </span>
+                    <span className="block space-y-0.5 mt-0.5">
+                      {dayShifts.slice(0, 3).map((s) => (
+                        <span
+                          key={s.id}
+                          className={`block truncate rounded-md px-1 py-px text-[9px] sm:text-[10px] font-bold ${shiftRoleChipClass(s.role)}`}
+                        >
+                          {SHIFT_ROLE_SHORT[s.role] ?? s.role} {s.volunteer_name}
+                        </span>
+                      ))}
+                      {dayShifts.length > 3 && (
+                        <span className="block text-[9px] text-slate-400 px-1">+{dayShifts.length - 3}件</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4">
+              <p className="text-xs font-bold mb-2">
+                {(() => {
+                  const d = new Date(`${selectedShiftDate}T00:00:00`);
+                  return `${d.getMonth() + 1}/${d.getDate()}（${"日月火水木金土"[d.getDay()]}）`;
+                })()}
+                {selectedShiftDate === toLocalDateStr(new Date()) ? "（今日）" : ""} の当番
+              </p>
+              {selectedDayShifts.length === 0 ? (
+                <p className="text-xs text-slate-400">この日の当番はまだ登録されていません。</p>
+              ) : (
+                <ul className="space-y-2">
+                  {selectedDayShifts.map((s) => (
                     <li
                       key={s.id}
                       className={`flex items-center gap-3 px-3 py-2 rounded-xl border text-xs ${
                         darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"
                       }`}
                     >
-                      <span className="font-bold w-24 shrink-0">
-                        {isToday ? `今日 ${dateLabel}` : dateLabel}
-                      </span>
                       <span className="font-semibold">{s.volunteer_name}</span>
-                      <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 font-bold">
+                      <span className={`px-2 py-0.5 rounded-full font-bold ${shiftRoleChipClass(s.role)}`}>
                         {s.role}
                       </span>
                       {s.note && <span className="text-slate-400">{s.note}</span>}
@@ -1717,10 +1848,10 @@ className="w-24 h-24 mx-auto"
                         </button>
                       )}
                     </li>
-                  );
-                })}
-              </ul>
-            )}
+                  ))}
+                </ul>
+              )}
+            </div>
 
             {isAdmin ? (
               <form onSubmit={handleAddShift} className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
