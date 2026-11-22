@@ -224,6 +224,57 @@ function generateSlugFromOrgName(name: string): string {
   return `${base.slice(0, 15)}-${randomSuffix}`;
 }
 
+const LEGAL_TERMS = `第1条（サービス内容）
+RescueOps は、保護動物団体の運営管理（活動・収支の記録、名簿管理、当番管理、報告書作成）を支援する団体向けツールです。利用は団体管理者のアカウント登録をもって開始します。運営は「保護ねこ支援 RescuCat 運営事務局」（以下「当運営」）が行います。
+
+第2条（アカウントと招待URL）
+1. 団体管理者は、アカウント情報および自団体の招待URL（ボランティア用）の管理に責任を負います。
+2. 招待URLは団体内でのみ共有し、不特定多数への公開は行わないでください。
+
+第3条（登録データの責任分界）
+1. 名簿・活動記録等、本サービスに登録されるデータの内容およびその取り扱い（ボランティア本人の同意取得を含みます）については、登録した団体が責任を負います。
+2. 当運営は、データの保管・処理の立場にあり、登録内容の正確性を確認する義務を負いません。
+
+第4条（禁止事項）
+法令違反、他者の権利侵害、虚偽情報の登録、本サービスの運営妨害、その他当運営が不適切と判断する行為を禁止します。
+
+第5条（免責・データの保全）
+1. 当運営は、本サービスの利用により生じた損害について、当運営の故意または重過失による場合を除き責任を負いません。
+2. 重要なデータは、CSVエクスポート機能等により団体側でも定期的に控えを保管してください。
+
+第6条（サービスの変更・停止）
+当運営は、事前の告知をもって本サービスの内容変更または提供の停止を行うことがあります。
+
+第7条（準拠法）
+本規約は日本法に準拠します。`;
+
+const LEGAL_PRIVACY = `保護ねこ支援 RescuCat 運営事務局（以下「当運営」）は、当運営が提供する RescuCat / RescueOps / Nekonote / にゃんスタグラム（以下「本サービス群」）における利用者の個人情報の取り扱いについて、以下のとおり定めます。
+
+1. 取得する情報
+アカウント情報（メールアドレス等）、団体情報（団体名・担当者名・連絡先・送付先住所）、ボランティア名簿情報（団体が登録する氏名・連絡先等）、応募・問い合わせ情報（氏名・メールアドレス・電話番号・住所・応募内容）、支援に関する情報（支援金額・対象の猫・決済の完了状況。クレジットカード番号等の決済情報は決済事業者 Stripe が処理し、当運営は保持しません）、アクセスログ等を取得します。
+
+2. 利用目的
+本サービス群の提供、本人確認、連絡、里親応募・問い合わせの対象団体への取り次ぎ、支援金の集計および団体への払い出し、お問い合わせ対応、不正利用の防止、サービス改善のために利用します。
+
+3. 第三者への提供
+里親応募・問い合わせ情報は、応募先の保護団体に提供します。物資の送付先住所は、支援を申し出た支援者に限り、送付手続きのために表示します。法令に基づく場合を除き、上記以外の第三者提供は本人の同意なく行いません。
+
+4. 委託先
+本サービス群は、データ保管に Supabase、配信に Cloudflare / Netlify、決済に Stripe を利用しており、必要な範囲で情報の取り扱いを委託しています。
+
+5. 安全管理
+取得した個人情報は、アクセス制御等の措置により適切に管理します。各団体が登録した名簿情報の内容の正確性・最新性は、登録した団体の責任で管理されるものとします。
+
+6. 開示・訂正・削除の請求
+本人からの請求には、本人確認のうえ合理的な期間内に対応します。窓口は第8項の連絡先とします。
+
+7. 改定
+本ポリシーを改定する場合は、本サービス群上で告知します。
+
+8. お問い合わせ窓口
+保護ねこ支援 RescuCat 運営事務局
+メール：ken.c.1173.surf@gmail.com`;
+
 export default function Home() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
@@ -280,6 +331,7 @@ export default function Home() {
   const [regAdminName, setRegAdminName] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [legalKind, setLegalKind] = useState<"terms" | "privacy" | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
   const [activeTab, setActiveTab] = useState<"logs" | "summary">("logs");
@@ -2565,6 +2617,26 @@ className="w-24 h-24 mx-auto"
                   パスワードを変更する
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        <footer className="pt-8 pb-4 text-center space-y-2">
+          <div className="flex justify-center gap-4 text-[11px]">
+            <button type="button" onClick={() => setLegalKind("terms")} className="underline text-slate-400 hover:text-indigo-500">利用規約</button>
+            <button type="button" onClick={() => setLegalKind("privacy")} className="underline text-slate-400 hover:text-indigo-500">プライバシーポリシー</button>
+          </div>
+          <p className="text-[10px] text-slate-400">運営：保護ねこ支援 RescuCat 運営事務局</p>
+        </footer>
+
+        {legalKind && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setLegalKind(null)}>
+            <div className={`p-6 rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border ${darkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-800"}`} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-bold">{legalKind === "terms" ? "利用規約" : "プライバシーポリシー"}</h3>
+                <button type="button" onClick={() => setLegalKind(null)} className="text-slate-400 text-xl leading-none">×</button>
+              </div>
+              <div className="text-xs leading-relaxed whitespace-pre-wrap">{legalKind === "terms" ? LEGAL_TERMS : LEGAL_PRIVACY}</div>
             </div>
           </div>
         )}
