@@ -73,6 +73,10 @@ type Animal = {
   id: string;
   name: string;
   species: string;
+  sex?: string | null;
+  age_text?: string | null;
+  status?: string | null;
+  is_public?: boolean | null;
   next_medical_date?: string | null;
   medical_notes?: string | null;
 };
@@ -304,6 +308,11 @@ export default function Home() {
   const [newAnimalSpecies, setNewAnimalSpecies] = useState("cat");
   const [newAnimalDate, setNewAnimalDate] = useState("");
   const [newAnimalNotes, setNewAnimalNotes] = useState("");
+  const [newAnimalSex, setNewAnimalSex] = useState("");
+  const [newAnimalAge, setNewAnimalAge] = useState("");
+  const [newAnimalStatus, setNewAnimalStatus] = useState("recruiting");
+  const [newAnimalPublic, setNewAnimalPublic] = useState(true);
+  const [editingAnimalId, setEditingAnimalId] = useState<string | null>(null);
 
   const [newShiftDate, setNewShiftDate] = useState("");
   const [newShiftVolunteer, setNewShiftVolunteer] = useState("");
@@ -411,23 +420,24 @@ export default function Home() {
         if (isMounted && profileData) {
           setUserRole(profileData.role);
           resolvedOrgId = profileData.organization_id as string | null;
+        } else if (isMounted) {
+          setUserRole("volunteer");
+        }
 
-          if (!resolvedOrgId) {
-            // フォールバック: profiles に団体が紐づいていない場合は、
-            // 自分がオーナーの団体（owner_user_id）から解決する。
-            // Nekonote / RescuCat で団体を作った管理者が RescueOps でも
-            // そのまま使えるようにするため（Phase B・共通設計の課題対応）。
-            const { data: ownedOrg } = await supabase
-              .from("organizations")
-              .select("id, name, slug")
-              .eq("owner_user_id", sessionUser.id)
-              .maybeSingle();
-            if (ownedOrg) {
-              resolvedOrgId = ownedOrg.id;
-              if (isMounted) {
-                setUserOrgName(ownedOrg.name);
-                setUserOrgSlug(ownedOrg.slug);
-              }
+        if (!resolvedOrgId) {
+          // フォールバック: profiles に団体が無い／profiles 自体が読めなかった場合でも、
+          // 自分がオーナーの団体（owner_user_id）から解決する。
+          // Nekonote / RescuCat で団体を作った管理者が RescueOps でも
+          // そのまま使えるようにするため（Phase B・共通設計の課題対応）。
+          const { data: ownedOrg } = await supabase
+            .from("organizations")
+            .select("id, name, slug")
+            .eq("owner_user_id", sessionUser.id)
+            .maybeSingle();
+          if (ownedOrg) {
+            resolvedOrgId = ownedOrg.id;
+            if (isMounted && !profileData) setUserRole("org_admin");
+            if (profileData) {
               // 次回から profiles 側で解決できるよう自己修復しておく
               // （失敗してもフォールバックで動き続けるので、結果は見ない）
               await supabase
@@ -436,57 +446,78 @@ export default function Home() {
                 .eq("id", sessionUser.id);
             }
           }
-
-          if (!isMounted) return;
-          setUserOrgId(resolvedOrgId);
-
-          if (resolvedOrgId) {
-            const { data: orgData } = await supabase
-              .from("organizations")
-              .select("id, name, slug")
-              .eq("id", resolvedOrgId)
-              .maybeSingle();
-            if (isMounted && orgData) {
-              setUserOrgName(orgData.name);
-              setUserOrgSlug(orgData.slug);
-            }
-          }
-        } else if (isMounted) {
-          setUserRole("volunteer");
         }
 
         // 団体が未解決で、メール確認前に保存した保留中の登録があれば完了させる
+        // 保留データはアカウントの user_metadata を優先（確認リンクを別ブラウザで
+        // 開いても引き継げる）。localStorage は予備。
         if (!resolvedOrgId) {
           try {
-            const pendingRaw = localStorage.getItem("rescueops_pending_reg");
-            if (pendingRaw) {
-              const pending = JSON.parse(pendingRaw);
-              if (pending.userId === sessionUser.id) {
-                const result = await createOrgRegistration(
-                  sessionUser.id,
-                  pending.orgName,
-                  pending.slug || "",
-                  pending.adminName,
-                  pending.email || sessionUser.email || ""
-                );
-                if (result.ok && result.orgId) {
-                  try {
-                    localStorage.removeItem("rescueops_pending_reg");
-                  } catch {
-                    /* noop */
-                  }
-                  resolvedOrgId = result.orgId;
-                  if (isMounted) {
-                    setUserRole("org_admin");
-                    setUserOrgId(result.orgId);
-                    setUserOrgName(result.orgName || "");
-                    setUserOrgSlug(result.orgSlug || "");
-                  }
+            const meta: any = sessionUser.user_metadata || {};
+            let pending: any = null;
+            if (meta.pending_org_name) {
+              pending = {
+                userId: sessionUser.id,
+                orgName: meta.pending_org_name,
+                slug: meta.pending_org_slug || "",
+                adminName: meta.pending_admin_name || "",
+                email: sessionUser.email || "",
+              };
+            } else {
+              const pendingRaw = localStorage.getItem("rescueops_pending_reg");
+              if (pendingRaw) pending = JSON.parse(pendingRaw);
+            }
+            if (pending && pending.userId === sessionUser.id) {
+              const result = await createOrgRegistration(
+                sessionUser.id,
+                pending.orgName,
+                pending.slug || "",
+                pending.adminName,
+                pending.email || sessionUser.email || ""
+              );
+              if (result.ok && result.orgId) {
+                try {
+                  localStorage.removeItem("rescueops_pending_reg");
+                } catch {
+                  /* noop */
+                }
+                try {
+                  await supabase.auth.updateUser({
+                    data: {
+                      pending_org_name: null,
+                      pending_org_slug: null,
+                      pending_admin_name: null,
+                    },
+                  });
+                } catch {
+                  /* noop */
+                }
+                resolvedOrgId = result.orgId;
+                if (isMounted) {
+                  setUserRole("org_admin");
+                  setUserOrgId(result.orgId);
+                  setUserOrgName(result.orgName || "");
+                  setUserOrgSlug(result.orgSlug || "");
                 }
               }
             }
           } catch {
             /* 失敗しても通常表示は続行する（次回ログイン時に再試行される） */
+          }
+        }
+
+        if (!isMounted) return;
+        setUserOrgId(resolvedOrgId);
+
+        if (resolvedOrgId) {
+          const { data: orgData } = await supabase
+            .from("organizations")
+            .select("id, name, slug")
+            .eq("id", resolvedOrgId)
+            .maybeSingle();
+          if (isMounted && orgData) {
+            setUserOrgName(orgData.name);
+            setUserOrgSlug(orgData.slug);
           }
         }
       }
@@ -573,12 +604,24 @@ export default function Home() {
 
   const fetchVolunteers = async () => {
     if (!userOrgId || isDemoMode) return;
-    const { data } = await supabase
-      .from("volunteers")
-      .select("*")
-      .eq("organization_id", userOrgId)
-      .order("name");
-    if (data) setVolunteers(data);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session) {
+      const { data } = await supabase
+        .from("volunteers")
+        .select("*")
+        .eq("organization_id", userOrgId)
+        .order("name");
+      if (data) setVolunteers(data);
+    } else {
+      // 未ログイン（ボランティア共有リンク）では名簿テーブルを直接読めないため、
+      // 名前だけを返すRPC経由で取得する（メール等の個人情報は含まれない）
+      const { data } = await supabase.rpc("get_org_member_names", {
+        p_org_id: userOrgId,
+      });
+      if (data) setVolunteers(data as Volunteer[]);
+    }
   };
 
   const fetchAnimals = async () => {
@@ -775,40 +818,98 @@ export default function Home() {
     }
   };
 
+  const resetAnimalForm = () => {
+    setNewAnimalName("");
+    setNewAnimalSpecies("cat");
+    setNewAnimalSex("");
+    setNewAnimalAge("");
+    setNewAnimalStatus("recruiting");
+    setNewAnimalPublic(true);
+    setNewAnimalDate("");
+    setNewAnimalNotes("");
+    setEditingAnimalId(null);
+  };
+
+  const startEditAnimal = (anim: Animal) => {
+    setEditingAnimalId(anim.id);
+    setNewAnimalName(anim.name);
+    setNewAnimalSpecies(anim.species || "cat");
+    setNewAnimalSex(anim.sex || "");
+    setNewAnimalAge(anim.age_text || "");
+    setNewAnimalStatus(anim.status || "recruiting");
+    setNewAnimalPublic(anim.is_public !== false);
+    setNewAnimalDate(anim.next_medical_date || "");
+    setNewAnimalNotes(anim.medical_notes || "");
+  };
+
+  const cancelEditAnimal = () => {
+    resetAnimalForm();
+  };
+
+  // 動物ごとの費用集計（承認済みの経費申請から。医療費はカテゴリ「医療費」）
+  const animalCosts = (animalId: string) => {
+    const rel = logs.filter(
+      (l) => l.cat_id === animalId && l.type === "expense" && l.status === "approved"
+    );
+    const medical = rel
+      .filter((l) => l.category === "医療費")
+      .reduce((sum, l) => sum + (l.amount || 0), 0);
+    const total = rel.reduce((sum, l) => sum + (l.amount || 0), 0);
+    return { medical, total };
+  };
+
   const handleAddAnimal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAnimalName.trim() || !userOrgId) return;
 
+    const payload = {
+      name: newAnimalName.trim(),
+      species: newAnimalSpecies,
+      sex: newAnimalSex || null,
+      age_text: newAnimalAge.trim() || null,
+      status: newAnimalStatus,
+      is_public: newAnimalPublic,
+      next_medical_date: newAnimalDate || null,
+      medical_notes: newAnimalNotes || null,
+    };
+
     if (isDemoMode) {
-      const newAnim: Animal = {
-        id: `demo-a-${Date.now()}`,
-        name: newAnimalName.trim(),
-        species: newAnimalSpecies,
-        next_medical_date: newAnimalDate || null,
-        medical_notes: newAnimalNotes || null,
-      };
-      setAnimals((prev) => [...prev, newAnim]);
-      setNewAnimalName("");
-      setNewAnimalDate("");
-      setNewAnimalNotes("");
+      if (editingAnimalId) {
+        setAnimals((prev) =>
+          prev.map((a) => (a.id === editingAnimalId ? { ...a, ...payload } : a))
+        );
+      } else {
+        const newAnim: Animal = { id: `demo-a-${Date.now()}`, ...payload };
+        setAnimals((prev) => [...prev, newAnim]);
+      }
+      resetAnimalForm();
+      return;
+    }
+
+    if (editingAnimalId) {
+      const { error } = await supabase
+        .from("cats")
+        .update(payload)
+        .eq("id", editingAnimalId);
+      if (error) {
+        alert("更新に失敗しました: " + error.message);
+      } else {
+        resetAnimalForm();
+        fetchAnimals();
+      }
       return;
     }
 
     const { error } = await supabase.from("cats").insert([
       {
         organization_id: userOrgId,
-        name: newAnimalName.trim(),
-        species: newAnimalSpecies,
-        next_medical_date: newAnimalDate || null,
-        medical_notes: newAnimalNotes || null,
+        ...payload,
       },
     ]);
     if (error) {
       alert("追加に失敗しました: " + error.message);
     } else {
-      setNewAnimalName("");
-      setNewAnimalDate("");
-      setNewAnimalNotes("");
+      resetAnimalForm();
       fetchAnimals();
     }
   };
@@ -826,6 +927,7 @@ export default function Home() {
 
   const handleDeleteAnimal = async (id: string) => {
     if (!confirm("この保護動物を削除してもよろしいですか？")) return;
+    if (editingAnimalId === id) cancelEditAnimal();
     if (isDemoMode) {
       setAnimals((prev) => prev.filter((a) => a.id !== id));
       return;
@@ -929,7 +1031,14 @@ export default function Home() {
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: window.location.origin + "/" },
+      options: {
+        emailRedirectTo: window.location.origin + "/",
+        data: {
+          pending_org_name: regOrgName.trim(),
+          pending_org_slug: regOrgSlug || "",
+          pending_admin_name: regAdminName.trim(),
+        },
+      },
     });
     if (authError || !authData.user) {
       alert("アカウント作成失敗 (Auth): " + (authError?.message || "不明なエラー"));
@@ -1778,11 +1887,14 @@ className="w-24 h-24 mx-auto"
             <div className="space-y-3 pt-2 border-t border-slate-700/30">
               <h3 className="text-sm font-bold flex items-center gap-2 text-amber-500">
                 <Heart className="w-4 h-4" />
-                保護動物 ＆ 次回医療・ワクチン期限管理 ({animals.length}頭)
+                保護動物名簿 ＆ 次回医療・ワクチン期限管理 ({animals.length}頭)
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {animals.map((anim) => (
+                {animals.map((anim) => {
+                  const costs = animalCosts(anim.id);
+                  const st = anim.status || "recruiting";
+                  return (
                   <div
                     key={anim.id}
                     className={`p-3 rounded-xl border text-xs flex justify-between items-center ${
@@ -1790,25 +1902,48 @@ className="w-24 h-24 mx-auto"
                     }`}
                   >
                     <div>
-                      <div className="font-bold">
-                        {anim.species === "dog" ? "🐶" : "🐱"} {anim.name}
+                      <div className="font-bold flex items-center gap-1.5 flex-wrap">
+                        <span>{anim.species === "dog" ? "🐶" : "🐱"} {anim.name}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${st === "adopted" ? "bg-slate-500/20 text-slate-400" : st === "trial" ? "bg-amber-500/20 text-amber-500" : "bg-emerald-500/20 text-emerald-500"}`}>
+                          {st === "adopted" ? "譲渡済み" : st === "trial" ? "トライアル中" : "募集中"}
+                        </span>
+                        {anim.is_public === false && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-500/20 text-slate-400">非公開</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {[anim.sex, anim.age_text].filter(Boolean).join(" ・ ") || "性別・年齢 未登録"}
                       </div>
                       <div className="text-[11px] text-rose-400">
                         次回医療日: {anim.next_medical_date || "未設定"} ({anim.medical_notes || "メモなし"})
                       </div>
+                      {costs.total > 0 && (
+                        <div className="text-[11px] text-indigo-400 font-semibold">
+                          医療費 ¥{costs.medical.toLocaleString()} ・ 全費用 ¥{costs.total.toLocaleString()}
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => handleDeleteAnimal(anim.id)}
-                      className="text-rose-400 hover:text-rose-500 font-bold text-xs"
-                    >
-                      削除
-                    </button>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={() => startEditAnimal(anim)}
+                        className="text-indigo-400 hover:text-indigo-500 font-bold text-xs"
+                      >
+                        編集
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAnimal(anim.id)}
+                        className="text-rose-400 hover:text-rose-500 font-bold text-xs"
+                      >
+                        削除
+                      </button>
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               <form onSubmit={handleAddAnimal} className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
-                <p className="text-xs font-bold text-indigo-400">＋ 保護動物と次回医療予定の登録</p>
+                <p className="text-xs font-bold text-indigo-400">{editingAnimalId ? "✏️ 保護動物の編集" : "＋ 保護動物と次回医療予定の登録"}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                   <select
                     value={newAnimalSpecies}
@@ -1840,9 +1975,49 @@ className="w-24 h-24 mx-auto"
                     className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
                   />
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <select
+                    value={newAnimalSex}
+                    onChange={(e) => setNewAnimalSex(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  >
+                    <option value="">性別：不明</option>
+                    <option value="オス">オス</option>
+                    <option value="メス">メス</option>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="年齢（例: 2歳・推定）"
+                    value={newAnimalAge}
+                    onChange={(e) => setNewAnimalAge(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  />
+                  <select
+                    value={newAnimalStatus}
+                    onChange={(e) => setNewAnimalStatus(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+                  >
+                    <option value="recruiting">募集中</option>
+                    <option value="trial">トライアル中</option>
+                    <option value="adopted">譲渡済み</option>
+                  </select>
+                  <label className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}>
+                    <input
+                      type="checkbox"
+                      checked={newAnimalPublic}
+                      onChange={(e) => setNewAnimalPublic(e.target.checked)}
+                    />
+                    他のサイトに公開
+                  </label>
+                </div>
                 <button type="submit" className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-sm">
-                  保護動物・スケジュールを登録
+                  {editingAnimalId ? "変更を保存" : "保護動物・スケジュールを登録"}
                 </button>
+                {editingAnimalId && (
+                  <button type="button" onClick={cancelEditAnimal} className={`w-full py-2 text-xs font-bold rounded-xl border ${darkMode ? "border-slate-700 text-slate-300" : "border-slate-200 text-slate-500"}`}>
+                    編集をキャンセル
+                  </button>
+                )}
               </form>
             </div>
           </section>
@@ -2691,6 +2866,12 @@ className="w-24 h-24 mx-auto"
         )}
 
         <footer className="pt-8 pb-4 text-center space-y-2">
+          <div className="flex justify-center gap-2 flex-wrap">
+            <a href="https://rescue-cat-app.pages.dev/" className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${darkMode ? "bg-slate-800 text-slate-200 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>🐾 RescuCat・支援金</a>
+            <a href="https://nekonote-support.pages.dev/" className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${darkMode ? "bg-slate-800 text-slate-200 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>📦 Nekonote・物資支援</a>
+            <span className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${darkMode ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-700"}`}>📋 RescueOps（今ここ）</span>
+            <a href="https://nyanstagram.pages.dev/" className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${darkMode ? "bg-slate-800 text-slate-200 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>🐱 にゃんスタグラム</a>
+          </div>
           <div className="flex justify-center gap-4 text-[11px]">
             <button type="button" onClick={() => setLegalKind("terms")} className="underline text-slate-400 hover:text-indigo-500">利用規約</button>
             <button type="button" onClick={() => setLegalKind("privacy")} className="underline text-slate-400 hover:text-indigo-500">プライバシーポリシー</button>
