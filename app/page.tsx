@@ -1915,7 +1915,7 @@ className="w-24 h-24 mx-auto"
                         {[anim.sex, anim.age_text].filter(Boolean).join(" ・ ") || "性別・年齢 未登録"}
                       </div>
                       <div className="text-[11px] text-rose-400">
-                        次回医療日: {anim.next_medical_date || "未設定"} ({anim.medical_notes || "メモなし"})
+                        次回ワクチン・通院日: {anim.next_medical_date || "未設定"} ({anim.medical_notes || "メモなし"})
                       </div>
                       {costs.total > 0 && (
                         <div className="text-[11px] text-indigo-400 font-semibold">
@@ -1943,8 +1943,8 @@ className="w-24 h-24 mx-auto"
               </div>
 
               <form onSubmit={handleAddAnimal} className={`p-4 rounded-xl border space-y-3 ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-white border-indigo-100"}`}>
-                <p className="text-xs font-bold text-indigo-400">{editingAnimalId ? "✏️ 保護動物の編集" : "＋ 保護動物と次回医療予定の登録"}</p>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <p className="text-xs font-bold text-indigo-400">{editingAnimalId ? "✏️ 保護動物の編集" : "＋ 保護動物の登録"}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <select
                     value={newAnimalSpecies}
                     onChange={(e) => setNewAnimalSpecies(e.target.value)}
@@ -1959,19 +1959,6 @@ className="w-24 h-24 mx-auto"
                     placeholder="名前（例: タマちゃん）"
                     value={newAnimalName}
                     onChange={(e) => setNewAnimalName(e.target.value)}
-                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                  />
-                  <input
-                    type="date"
-                    value={newAnimalDate}
-                    onChange={(e) => setNewAnimalDate(e.target.value)}
-                    className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
-                  />
-                  <input
-                    type="text"
-                    placeholder="医療メモ（例: ワクチン次回）"
-                    value={newAnimalNotes}
-                    onChange={(e) => setNewAnimalNotes(e.target.value)}
                     className={`px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
                   />
                 </div>
@@ -2007,11 +1994,36 @@ className="w-24 h-24 mx-auto"
                       checked={newAnimalPublic}
                       onChange={(e) => setNewAnimalPublic(e.target.checked)}
                     />
-                    他のサイトに公開
+                    支援サイト（RescuCat・にゃんスタ）に公開
                   </label>
                 </div>
+                <div className={`p-3 rounded-xl border space-y-2 ${darkMode ? "bg-rose-950/30 border-rose-900/50" : "bg-rose-50 border-rose-100"}`}>
+                  <p className="text-xs font-bold text-rose-400">💉 ワクチン・医療（任意）</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className={`block text-[11px] font-bold mb-1 ${darkMode ? "text-slate-300" : "text-slate-500"}`}>次回ワクチン・通院の予定日</span>
+                      <input
+                        type="date"
+                        value={newAnimalDate}
+                        onChange={(e) => setNewAnimalDate(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-200"}`}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={`block text-[11px] font-bold mb-1 ${darkMode ? "text-slate-300" : "text-slate-500"}`}>医療メモ</span>
+                      <input
+                        type="text"
+                        placeholder="例: 3種混合ワクチン次回"
+                        value={newAnimalNotes}
+                        onChange={(e) => setNewAnimalNotes(e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-200"}`}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-slate-400">※誕生日ではなく、次回の通院・ワクチン予定日です</p>
+                </div>
                 <button type="submit" className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-sm">
-                  {editingAnimalId ? "変更を保存" : "保護動物・スケジュールを登録"}
+                  {editingAnimalId ? "変更を保存" : "保護動物を登録"}
                 </button>
                 {editingAnimalId && (
                   <button type="button" onClick={cancelEditAnimal} className={`w-full py-2 text-xs font-bold rounded-xl border ${darkMode ? "border-slate-700 text-slate-300" : "border-slate-200 text-slate-500"}`}>
