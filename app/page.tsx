@@ -401,6 +401,7 @@ export default function Home() {
       setUser(sessionUser);
 
       if (sessionUser) {
+        let resolvedOrgId: string | null = null;
         const { data: profileData } = await supabase
           .from("profiles")
           .select("role, organization_id")
@@ -409,7 +410,7 @@ export default function Home() {
 
         if (isMounted && profileData) {
           setUserRole(profileData.role);
-          let resolvedOrgId = profileData.organization_id as string | null;
+          resolvedOrgId = profileData.organization_id as string | null;
 
           if (!resolvedOrgId) {
             // フォールバック: profiles に団体が紐づいていない場合は、
@@ -452,6 +453,41 @@ export default function Home() {
           }
         } else if (isMounted) {
           setUserRole("volunteer");
+        }
+
+        // 団体が未解決で、メール確認前に保存した保留中の登録があれば完了させる
+        if (!resolvedOrgId) {
+          try {
+            const pendingRaw = localStorage.getItem("rescueops_pending_reg");
+            if (pendingRaw) {
+              const pending = JSON.parse(pendingRaw);
+              if (pending.userId === sessionUser.id) {
+                const result = await createOrgRegistration(
+                  sessionUser.id,
+                  pending.orgName,
+                  pending.slug || "",
+                  pending.adminName,
+                  pending.email || sessionUser.email || ""
+                );
+                if (result.ok && result.orgId) {
+                  try {
+                    localStorage.removeItem("rescueops_pending_reg");
+                  } catch {
+                    /* noop */
+                  }
+                  resolvedOrgId = result.orgId;
+                  if (isMounted) {
+                    setUserRole("org_admin");
+                    setUserOrgId(result.orgId);
+                    setUserOrgName(result.orgName || "");
+                    setUserOrgSlug(result.orgSlug || "");
+                  }
+                }
+              }
+            }
+          } catch {
+            /* 失敗しても通常表示は続行する（次回ログイン時に再試行される） */
+          }
         }
       }
       if (isMounted) setLoading(false);
@@ -814,6 +850,73 @@ export default function Home() {
     setLoginLoading(false);
   };
 
+  // 団体・プロフィール・管理者名簿の作成（要ログイン状態で実行する）
+  const createOrgRegistration = async (
+    userId: string,
+    orgName: string,
+    slugInput: string,
+    adminName: string,
+    emailAddr: string
+  ): Promise<{ ok: boolean; orgId?: string; orgName?: string; orgSlug?: string; message?: string }> => {
+    let slug = slugInput || generateSlugFromOrgName(orgName);
+    let newOrgId: string | null = null;
+
+    for (let attempt = 0; attempt < 3 && !newOrgId; attempt++) {
+      const { data: orgRow, error: orgError } = await supabase
+        .from("organizations")
+        .insert([{ name: orgName, slug, owner_user_id: userId }])
+        .select("id")
+        .single();
+
+      if (!orgError && orgRow) {
+        newOrgId = orgRow.id;
+        break;
+      }
+
+      const errDetail = `${(orgError as any)?.details || ""} ${(orgError as any)?.message || ""}`;
+      if ((orgError as any)?.code === "23505" && errDetail.includes("slug")) {
+        slug = generateSlugFromOrgName(orgName);
+        continue;
+      }
+      if ((orgError as any)?.code === "23505" && errDetail.includes("owner_user_id")) {
+        return { ok: false, message: "このアカウントでは既に団体が登録されています。ログインしてご利用ください。" };
+      }
+      return { ok: false, message: "団体の作成に失敗しました (organizations): " + (orgError?.message || "不明なエラー") };
+    }
+
+    if (!newOrgId) {
+      return { ok: false, message: "団体の作成に失敗しました (organizations): 専用URL（slug）の生成に失敗しました。もう一度お試しください。" };
+    }
+
+    const { error: profileError } = await supabase.from("profiles").upsert([
+      {
+        id: userId,
+        email: emailAddr,
+        role: "org_admin",
+        organization_id: newOrgId,
+      },
+    ]);
+    if (profileError) {
+      return { ok: false, message: "管理者プロフィールの保存に失敗しました (profiles): " + profileError.message };
+    }
+
+    const { error: volError } = await supabase.from("volunteers").insert([
+      {
+        organization_id: newOrgId,
+        name: adminName,
+        nickname: adminName,
+        email: emailAddr,
+        role: "団体管理者",
+        member_type: "volunteer",
+      },
+    ]);
+    if (volError) {
+      return { ok: false, message: "名簿への初期登録に失敗しました (volunteers): " + volError.message };
+    }
+
+    return { ok: true, orgId: newOrgId, orgName, orgSlug: slug };
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!regOrgName.trim() || !regAdminName.trim()) {
@@ -835,87 +938,53 @@ export default function Home() {
     }
 
     const newUser = authData.user;
-    // セッションが無い場合はメール確認が完了するまで登録は未完了
+    // セッションが無い場合はメール確認待ち。この状態では団体作成がRLSで弾かれるため、
+    // 登録情報を端末に保存し、確認後の初回ログイン時に initApp 側で作成を完了させる
     const needsEmailConfirm = !authData.session;
 
-    // 組織の作成（新スキーマ: id が PK、owner_user_id に管理者、slug を保存）
-    let slug = regOrgSlug || generateSlugFromOrgName(regOrgName.trim());
-    let newOrgId: string | null = null;
-
-    for (let attempt = 0; attempt < 3 && !newOrgId; attempt++) {
-      const { data: orgRow, error: orgError } = await supabase
-        .from("organizations")
-        .insert([{ name: regOrgName.trim(), slug, owner_user_id: newUser.id }])
-        .select("id")
-        .single();
-
-      if (!orgError && orgRow) {
-        newOrgId = orgRow.id;
-        break;
-      }
-
-      const errDetail = `${(orgError as any)?.details || ""} ${(orgError as any)?.message || ""}`;
-      if ((orgError as any)?.code === "23505" && errDetail.includes("slug")) {
-        // slug が重複したら、ランダムな suffix を付け直して再試行
-        slug = generateSlugFromOrgName(regOrgName.trim());
-        continue;
-      }
-      if ((orgError as any)?.code === "23505" && errDetail.includes("owner_user_id")) {
-        alert("このアカウントでは既に団体が登録されています。ログインしてご利用ください。");
-        setLoginLoading(false);
-        return;
-      }
-
-      alert("団体の作成に失敗しました (organizations): " + (orgError?.message || "不明なエラー"));
-      setLoginLoading(false);
-      return;
-    }
-
-    if (!newOrgId) {
-      alert("団体の作成に失敗しました (organizations): 専用URL（slug）の生成に失敗しました。もう一度お試しください。");
-      setLoginLoading(false);
-      return;
-    }
-
-    const { error: profileError } = await supabase.from("profiles").upsert([
-      {
-        id: newUser.id,
-        email: email.trim(),
-        role: "org_admin",
-        organization_id: newOrgId,
-      },
-    ]);
-
-    if (profileError) {
-      alert("管理者プロフィールの保存に失敗しました (profiles): " + profileError.message);
-      setLoginLoading(false);
-      return;
-    }
-
-    const { error: volError } = await supabase.from("volunteers").insert([
-      {
-        organization_id: newOrgId,
-        name: regAdminName.trim(),
-        nickname: regAdminName.trim(),
-        email: email.trim(),
-        role: "団体管理者",
-        member_type: "volunteer",
-      },
-    ]);
-
-    if (volError) {
-      alert("名簿への初期登録に失敗しました (volunteers): " + volError.message);
-      setLoginLoading(false);
-      return;
-    }
-
     if (needsEmailConfirm) {
+      try {
+        localStorage.setItem(
+          "rescueops_pending_reg",
+          JSON.stringify({
+            userId: newUser.id,
+            orgName: regOrgName.trim(),
+            slug: regOrgSlug || "",
+            adminName: regAdminName.trim(),
+            email: email.trim(),
+          })
+        );
+      } catch {
+        /* localStorage が使えない環境では次回ログイン時の手動復旧が必要 */
+      }
       alert(
-        "🎉 団体とアカウントを作成しました！\n\n確認メールを送信しました。メール内のリンクをクリックすると登録が完了します。\n完了後にログインすると、そのまま管理画面が開きます。"
+        "🎉 アカウントを作成しました！\n\n確認メールを送信しました。同じ端末・ブラウザでメール内のリンクを開き、ログインすると団体登録が完了します。"
       );
-    } else {
-      alert("🎉 団体の登録とアカウント作成が完了しました！");
+      setEmail("");
+      setPassword("");
+      setRegOrgName("");
+      setRegOrgSlug("");
+      setRegAdminName("");
+      setIsSignUpMode(false);
+      setShowLoginModal(false);
+      setLoginLoading(false);
+      return;
     }
+
+    const result = await createOrgRegistration(
+      newUser.id,
+      regOrgName.trim(),
+      regOrgSlug || "",
+      regAdminName.trim(),
+      email.trim()
+    );
+    if (!result.ok) {
+      alert(result.message);
+      setLoginLoading(false);
+      return;
+    }
+
+    alert("🎉 団体の登録とアカウント作成が完了しました！");
     setEmail("");
     setPassword("");
     setRegOrgName("");
