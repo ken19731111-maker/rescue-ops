@@ -355,6 +355,7 @@ export default function Home() {
 
   const [filter, setFilter] = useState<"all" | "expense" | "donation" | "pending">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [mySubmissions, setMySubmissions] = useState<any[]>([]);
 
   const [reportPeriod, setReportPeriod] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("");
@@ -601,6 +602,26 @@ export default function Home() {
       .order("created_at", { ascending: false });
     if (!error) setLogs(data || []);
   };
+
+  // 自分が送信した申請の控え（この端末の localStorage）を読み込む
+  useEffect(() => {
+    if (!userOrgId) return;
+    try {
+      const raw = localStorage.getItem("rescueops_my_submissions_" + userOrgId);
+      if (raw) setMySubmissions(JSON.parse(raw));
+    } catch {
+      /* noop */
+    }
+  }, [userOrgId]);
+
+  // 画面に戻ってきたら申請一覧を自動で最新化する
+  useEffect(() => {
+    const onFocus = () => {
+      fetchLogs();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [userOrgId]);
 
   const fetchVolunteers = async () => {
     if (!userOrgId || isDemoMode) return;
@@ -1202,6 +1223,26 @@ export default function Home() {
       setOcrDoneMessage("");
       const fileInput = document.getElementById("image-input") as HTMLInputElement;
       if (fileInput) fileInput.value = "";
+      // 送信した本人が内容を確認できるよう、この端末に控えを残す（閲覧のみ）
+      try {
+        const record = {
+          type,
+          volunteer_name: finalVolunteerName,
+          category,
+          cat_id: selectedAnimalId,
+          title,
+          amount: newAmount,
+          details: details.trim() || null,
+          submitted_at: new Date().toISOString(),
+        };
+        const key = "rescueops_my_submissions_" + userOrgId;
+        const prev = JSON.parse(localStorage.getItem(key) || "[]");
+        const next = [record, ...prev].slice(0, 10);
+        localStorage.setItem(key, JSON.stringify(next));
+        setMySubmissions(next);
+      } catch {
+        /* noop */
+      }
       fetchLogs();
     }
     setSubmitting(false);
@@ -2637,9 +2678,40 @@ className="w-24 h-24 mx-auto"
                       {f === "donation" && "寄付のみ"}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fetchLogs();
+                      fetchAnimals();
+                      fetchVolunteers();
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${darkMode ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-600"}`}
+                  >
+                    🔄 最新に更新
+                  </button>
                 </div>
               )}
             </div>
+
+            {!isAdmin && mySubmissions.length > 0 && (
+              <div className={`p-4 rounded-2xl border shadow-sm space-y-2 ${darkMode ? "bg-slate-900 border-indigo-900/60" : "bg-indigo-50/60 border-indigo-100"}`}>
+                <p className="text-xs font-bold text-indigo-400">📝 あなたが送信した申請（この端末にだけ表示されます）</p>
+                {mySubmissions.map((m, i) => (
+                  <div key={i} className={`p-3 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-indigo-100"}`}>
+                    <div className="font-bold">
+                      {m.title}{" "}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-500">⏳ 確認待ち</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {m.category}
+                      {m.amount ? ` ・ ¥${Number(m.amount).toLocaleString()}` : ""} ・ {new Date(m.submitted_at).toLocaleString("ja-JP")}
+                    </div>
+                    {m.details && <div className="text-[11px] text-slate-400">{m.details}</div>}
+                  </div>
+                ))}
+                <p className="text-[11px] text-slate-400">内容の確認用です。管理者が承認すると、寄付は上の一覧にも表示されます。間違いに気づいたら管理者に連絡してください。</p>
+              </div>
+            )}
 
             {loading ? (
               <p className="text-center py-8 text-xs text-slate-400">読み込み中...</p>
