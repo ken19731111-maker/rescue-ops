@@ -921,10 +921,14 @@ export default function Home() {
       return;
     }
 
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     const { error } = await supabase.from("cats").insert([
       {
         organization_id: userOrgId,
         ...payload,
+        created_by: session?.user?.id || null,
       },
     ]);
     if (error) {
