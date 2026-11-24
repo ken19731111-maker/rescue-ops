@@ -21,6 +21,7 @@ import {
   Settings,
   BarChart3,
   ShieldCheck,
+  ShoppingCart,
   Building,
   Play,
   RotateCcw,
@@ -42,6 +43,20 @@ import {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key";
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// 不足品の購入リンク（アフィリエイト）
+// ※ Amazon・楽天とも「サイトの追加登録」が前提。Amazonはアソシエイト・セントラルに
+//   RescueOps（rescue-ops.netlify.app）を追加すれば同じタグが使える。
+// ※ 楽天はサイトごとにIDが変わる場合がある。RescueOpsを追加登録して発行されたIDが
+//   Nekonote用と異なる場合は、RAKUTEN_AFFILIATE_ID を差し替えること。
+const AMAZON_TAG = "nekonote09e-22";
+const RAKUTEN_AFFILIATE_ID = "59d50cc1.68a28374";
+const amazonSearchUrl = (kw: string) =>
+  `https://www.amazon.co.jp/s?k=${encodeURIComponent(kw.trim() || "キャットフード")}&tag=${AMAZON_TAG}`;
+const rakutenSearchUrl = (kw: string) => {
+  const pc = `https://search.rakuten.co.jp/search/mall/${encodeURIComponent(kw.trim() || "キャットフード")}/`;
+  return `https://hb.afl.rakuten.co.jp/hgc/${RAKUTEN_AFFILIATE_ID}/?pc=${encodeURIComponent(pc)}&m=${encodeURIComponent(pc)}`;
+};
 
 type ActivityLog = {
   id: string;
@@ -318,6 +333,7 @@ export default function Home() {
   const [newShiftVolunteer, setNewShiftVolunteer] = useState("");
   const [newShiftRole, setNewShiftRole] = useState(SHIFT_ROLES[0]);
   const [newShiftNote, setNewShiftNote] = useState("");
+  const [buyKeyword, setBuyKeyword] = useState("");
   const [shiftCalendarMonth, setShiftCalendarMonth] = useState(() => {
     const t = new Date();
     return new Date(t.getFullYear(), t.getMonth(), 1);
@@ -1639,6 +1655,7 @@ darkMode? "bg-slate-800 border-slate-700 text-slate-300": "bg-slate-100 border-s
 }`}
 >
 <LogOut className="w-3.5 h-3.5" />
+ログアウト
 </button>
 </div>
 ): (
@@ -2293,6 +2310,51 @@ className="w-24 h-24 mx-auto"
             ) : (
               <p className="text-[11px] text-slate-400 mt-3">当番の追加・変更は団体管理者が行います。</p>
             )}
+          </section>
+        )}
+
+        {isAdmin && userOrgId && (
+          <section className={`rounded-2xl p-6 border shadow-sm print:hidden ${darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}>
+            <h2 className="text-base font-bold mb-2 flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5 text-indigo-500" />
+              不足品の購入
+            </h2>
+            <p className="text-[11px] text-slate-400 mb-3">
+              支援物資で不足している品は、こちらから購入できます。このリンクを経由して購入いただくと、購入金額の一部が本サイトの運営費として還元されます。サイトを続けていくための運営費になりますので、ご協力いただけると助かります。
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                placeholder="商品名（例：キャットフード、ペットシーツ）"
+                value={buyKeyword}
+                onChange={(e) => setBuyKeyword(e.target.value)}
+                className={`flex-1 px-3 py-2 rounded-xl border text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200"}`}
+              />
+              <div className="flex gap-2">
+                <a
+                  href={amazonSearchUrl(buyKeyword)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center justify-center"
+                >
+                  Amazonで探す
+                </a>
+                <a
+                  href={rakutenSearchUrl(buyKeyword)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center justify-center"
+                >
+                  楽天で探す
+                </a>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-3">
+              ※ 購入内容は自動では取り込めません。商品が到着したら、下の「新規申請フォーム」から経費の申請をお願いします。
+            </p>
+            <p className="text-[10px] text-slate-400 mt-1">
+              ※ 当サイトは、Amazonアソシエイトおよび楽天アフィリエイトに参加しています（適格販売により収入を得ています）。
+            </p>
           </section>
         )}
 
